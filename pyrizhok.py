@@ -1,10 +1,37 @@
 import sys
 from sys import argv
 
+from humanfriendly.terminal import ansi_wrap
+
 from MHDDoS.start import start, ToolsConsole
 
 
+def print_flair():
+
+    BLUE = (0, 91, 187)
+    YELLOW = (255, 213, 0)
+    GREEN = (8, 255, 8)
+    RED = (255, 0, 0)
+
+    heart = ansi_wrap("♥", color=RED)
+    flair_string = "\n" + \
+                   "A light freedom-infused MHDDoS wrapper...\n" + \
+                   "\n" + \
+                   ansi_wrap("██████╗░██╗░░░██╗██████╗░██╗███████╗██╗░░██╗░█████╗░██╗░░██╗\n", color=BLUE) + \
+                   ansi_wrap("██╔══██╗╚██╗░██╔╝██╔══██╗██║╚════██║██║░░██║██╔══██╗██║░██╔╝\n", color=BLUE) + \
+                   ansi_wrap("██████╔╝░╚████╔╝░██████╔╝██║░░███╔═╝███████║██║░░██║█████═╝░\n", color=BLUE) + \
+                   ansi_wrap("██╔═══╝░░░╚██╔╝░░██╔══██╗██║██╔══╝░░██╔══██║██║░░██║██╔═██╗░\n", color=YELLOW) + \
+                   ansi_wrap("██║░░░░░░░░██║░░░██║░░██║██║███████╗██║░░██║╚█████╔╝██║░╚██╗\n", color=YELLOW) + \
+                   ansi_wrap("╚═╝░░░░░░░░╚═╝░░░╚═╝░░╚═╝╚═╝╚══════╝╚═╝░░╚═╝░╚════╝░╚═╝░░╚═╝\n", color=YELLOW) + \
+                   "\n" + \
+                   f"                                 ...from Ukraine with love {heart}\n"
+    print(flair_string)
+    print(ansi_wrap("Initializing...\n", color=GREEN))
+
+
 def kara():
+    print_flair()
+
     if len(argv) < 2:
         address = input("Enter target address: ")
         if not address:
