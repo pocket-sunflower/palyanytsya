@@ -1,0 +1,8 @@
+from build_scripts_PyInstaller.build_base import build
+
+if __name__ == '__main__':
+    build(
+        output_folder_name="Mac",
+        target_platform_name="macOS",
+        python_platform_check_string="darwin"
+    )
