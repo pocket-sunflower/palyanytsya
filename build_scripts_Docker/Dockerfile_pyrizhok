@@ -1,0 +1,15 @@
+FROM python:3.10-slim-buster
+
+RUN apt update -y
+RUN apt install -y git
+
+COPY ../MHDDoS /app/MHDDoS/
+COPY ../requirements.txt /app/
+RUN pip install -r /app/requirements.txt
+
+COPY ../pyrizhok.py /app/
+COPY ../build_scripts_Docker/docker_entrypoint_pyrizhok.sh /app/
+
+WORKDIR /app
+
+ENTRYPOINT ["./docker_entrypoint_pyrizhok.sh"]
