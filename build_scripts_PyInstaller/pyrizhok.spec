@@ -3,12 +3,11 @@
 
 block_cipher = None
 
-
 a = Analysis(['../pyrizhok.py'],
              pathex=[],
              binaries=[],
              datas=[
-                ('../venv/Lib/site-packages/PyRoxy/GeoIP/Sqlite/GeoLite2-Country.mmdb', 'PyRoxy/GeoIP/Sqlite'),
+                ('build_dependency_files/GeoLite2-Country.mmdb', 'PyRoxy/GeoIP/Sqlite'),
                 ('../MHDDoS', 'MHDDoS'),
              ],
              hiddenimports=[],
@@ -27,7 +26,7 @@ exe = EXE(pyz,
           a.scripts,
           a.binaries,
           a.zipfiles,
-          a.datas,  
+          a.datas,
           [],
           name='pyrizhok',
           debug=False,
