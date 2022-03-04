@@ -48,25 +48,17 @@ def kara():
     address = argv[1]
 
     # Parse port
-    default_protocol = None
+    default_protocol = "UDP"
     if len(argv) > 2:
         port = argv[2]
 
         try:
             port = int(port)
         except ValueError:
-            print(f"Invalid port specified ({port}). Port must be an integer value in range [1..65535]. Aborting execution.")
+            print(f"Invalid port provided ({port}). Port must be an integer value in range [1..65535]. Aborting execution.")
             sys.exit(1)
 
-        if port == 53 or port == 5353:
-            default_protocol = "DNS"
-            print(f"Port provided ({port}). It's a DNS port. Defaulting to DNS mode...")
-        elif port == 123:
-            default_protocol = "NTP"
-            print(f"Port provided ({port}). It's an NTP port. Defaulting to NTP mode...")
-        else:
-            default_protocol = "UDP"
-            print(f"Port provided ({port}). Using UDP mode...")
+        print(f"Port provided ({port}). Using {default_protocol} mode...")
 
         # If we have the port, bot no IP address, we need to get the IP of the target
         if not is_valid_ipv4(address):
@@ -128,7 +120,7 @@ if __name__ == '__main__':
         kara()
     except KeyboardInterrupt:
         print("\nExecution aborted.\n")
-    except SystemExit:
-        pass
+    except SystemExit as e:
+        print(ansi_wrap(f"Caught SystemExit Exception: {e}", color=(255, 0, 0)))
 
     input("\nExecution finished.\nPress ENTER to exit... ")
