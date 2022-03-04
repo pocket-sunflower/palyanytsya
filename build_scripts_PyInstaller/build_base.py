@@ -42,7 +42,6 @@ def build(output_folder_name: str,
 
     print_blue("Installing requirements...")
 
-    call_and_wait(f'pip install -r "{spec_root}/../requirements.txt"')
     call_and_wait(f'pip install pyinstaller')
 
     print_green("Requirements installed successfully.")
