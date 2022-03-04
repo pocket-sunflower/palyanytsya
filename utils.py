@@ -1,4 +1,5 @@
 import os
+import socket
 import sys
 
 from humanfriendly.terminal import ansi_wrap
@@ -29,3 +30,11 @@ def print_vpn_warning():
                     f"      Country: {str.upper(ip_data['country'])}\n"
                     f"   If the data above doesn't match your physical location, you can ignore this warning.\n"
                     f"   Stay safe! ♥\n", color=(WARNING_YELLOW if supports_color() else None)))
+
+
+def is_valid_ipv4(address: str):
+    try:
+        socket.inet_aton(address)
+        return True
+    except socket.error:
+        return False
