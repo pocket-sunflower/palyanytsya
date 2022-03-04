@@ -914,6 +914,7 @@ class ToolsConsole:
 
         if not info["success"]:
             print(f"Could not get the IP of '{domain}'!")
+            return
 
         print(f"IP: {info['ip']}")
 
