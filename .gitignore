@@ -96,6 +96,7 @@ celerybeat-schedule
 # SageMath parsed files
 *.sage.py
 mew.py
+mew/
 
 # Environments
 .env
