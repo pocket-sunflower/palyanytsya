@@ -37,6 +37,9 @@ def velyka_kara():
         print("Not enough arguments supplied. Please check the reference below:\n")
         argv.insert(1, "HELP")
 
+    # enable debug to see attack progress
+    argv.append("true")
+
     start()
 
 

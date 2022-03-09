@@ -108,6 +108,9 @@ def kara():
         while len(argv) > 5:
             argv.pop(-1)
 
+    # enable debug to see attack progress
+    argv.append("true")
+
     print()
     print(f"Initiating attack with the following MHDDoS parameters:\n     {' '.join(argv[1:])}")
     print()
