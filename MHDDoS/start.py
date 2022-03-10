@@ -122,6 +122,8 @@ class Counter(object):
 
 REQUESTS_SENT = Counter()
 bytes_sent = Counter()
+TOTAL_REQUESTS_SENT = Counter()
+TOTAL_BYTES_SENT = Counter()
 
 
 class Tools:
@@ -1530,18 +1532,15 @@ def start():
                     % (target or url.human_repr(), method, timer, threads))
                 event.set()
                 ts = time()
-                total_requests_sent = 0
-                total_bytes_sent = 0
+
+                global bytes_sent, REQUESTS_SENT, TOTAL_REQUESTS_SENT, TOTAL_BYTES_SENT
+
                 while time() < ts + timer:
-                    logger.debug(
-                        f"PPS: {Tools.humanformat(int(REQUESTS_SENT))}, "
-                        f"BPS: {Tools.humanbytes(int(bytes_sent))}ps, "
-                        f"total {Tools.humanformat(int(total_requests_sent))} / "
-                        f"{Tools.humanbytes(int(total_bytes_sent))}")
+                    log_attack_status()
 
-                    total_requests_sent += int(REQUESTS_SENT)
-                    total_bytes_sent += int(bytes_sent)
-
+                    # update request counts
+                    TOTAL_REQUESTS_SENT += int(REQUESTS_SENT)
+                    TOTAL_BYTES_SENT += int(bytes_sent)
                     REQUESTS_SENT.set(0)
                     bytes_sent.set(0)
 
@@ -1551,6 +1550,42 @@ def start():
                 exit()
 
             ToolsConsole.usage()
+
+
+status_logging_started = False
+
+
+def log_attack_status():
+    global bytes_sent, REQUESTS_SENT, TOTAL_BYTES_SENT, TOTAL_REQUESTS_SENT, status_logging_started
+
+    # craft the status log message
+    pps = Tools.humanformat(int(REQUESTS_SENT))
+    bps = Tools.humanbytes(int(bytes_sent))
+    tp = Tools.humanformat(int(TOTAL_REQUESTS_SENT))
+    tb = Tools.humanbytes(int(TOTAL_BYTES_SENT))
+    status_string = f"\n" \
+                    f"Status:\n" \
+                    f"    Outgoing data (per second):\n" \
+                    f"       Packets/s: {pps}\n" \
+                    f"       Bytes/s:   {bps}\n" \
+                    f"    Outgoing data (total since the attack started):\n" \
+                    f"       Packets sent: {tp}\n" \
+                    f"       Bytes sent:   {tb}\n"
+
+    # craft a returner string so that we can overwrite previous multiline status log output
+    message_line_count = status_string.count("\n") + 1
+    GO_TO_PREVIOUS_LINE = f"\033[A"
+    GO_TO_LINE_START = "\r"
+    CLEAR_LINE = "\033[K"
+    returner = "".join([f"{GO_TO_PREVIOUS_LINE}{GO_TO_LINE_START}{CLEAR_LINE}" for _ in range(message_line_count)])
+    returner += GO_TO_PREVIOUS_LINE
+
+    # log the message
+    if not status_logging_started:
+        status_logging_started = True
+    else:
+        print(returner)
+    logger.debug(status_string)
 
 
 if __name__ == '__main__':
