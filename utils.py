@@ -8,7 +8,7 @@ from requests import get
 from MHDDoS.start import ToolsConsole
 
 
-def supports_color():
+def supports_complex_colors():
     platform = sys.platform
     supported_platform = platform != 'Pocket PC' and (platform != 'win32' or 'ANSICON' in os.environ)
 
@@ -18,7 +18,7 @@ def supports_color():
 
 
 def print_vpn_warning():
-    WARNING_YELLOW = (236, 232, 26)
+    WARNING_YELLOW = (236, 232, 26) if supports_complex_colors() else "yellow"
 
     local_ip = get('http://ip.42.pl/raw').text
     ip_data = ToolsConsole.info(local_ip)
@@ -29,7 +29,7 @@ def print_vpn_warning():
                     f"      IP: {ip_data['ip']}\n"
                     f"      Country: {str.upper(ip_data['country'])}\n"
                     f"   If the data above doesn't match your physical location, you can ignore this warning.\n"
-                    f"   Stay safe! ♥\n", color=(WARNING_YELLOW if supports_color() else None)))
+                    f"   Stay safe! ♥\n", color=WARNING_YELLOW))
 
 
 def is_valid_ipv4(address: str):

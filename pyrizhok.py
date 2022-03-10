@@ -1,32 +1,33 @@
 import sys
 from sys import argv
 
+import colorama
 from humanfriendly.terminal import ansi_wrap
 
 from MHDDoS.start import start, ToolsConsole
-from utils import print_vpn_warning, supports_color, is_valid_ipv4
+from utils import print_vpn_warning, supports_complex_colors, is_valid_ipv4
 
 
 def print_flair():
-    BLUE = (0, 91, 187)
-    YELLOW = (255, 213, 0)
-    GREEN = (8, 255, 8)
-    RED = (255, 0, 0)
+    BLUE = (0, 91, 187) if supports_complex_colors() else "blue"
+    YELLOW = (255, 213, 0) if supports_complex_colors() else "yellow"
+    GREEN = (8, 255, 8) if supports_complex_colors() else "green"
+    RED = (255, 0, 0) if supports_complex_colors() else "red"
 
-    heart = ansi_wrap("♥", color=(RED if supports_color() else None))
+    heart = ansi_wrap("♥", color=RED)
     flair_string = "\n" + \
                    "A light freedom-infused MHDDoS wrapper...\n" + \
                    "\n" + \
-                   ansi_wrap("██████╗░██╗░░░██╗██████╗░██╗███████╗██╗░░██╗░█████╗░██╗░░██╗\n", color=(BLUE if supports_color() else None)) + \
-                   ansi_wrap("██╔══██╗╚██╗░██╔╝██╔══██╗██║╚════██║██║░░██║██╔══██╗██║░██╔╝\n", color=(BLUE if supports_color() else None)) + \
-                   ansi_wrap("██████╔╝░╚████╔╝░██████╔╝██║░░███╔═╝███████║██║░░██║█████═╝░\n", color=(BLUE if supports_color() else None)) + \
-                   ansi_wrap("██╔═══╝░░░╚██╔╝░░██╔══██╗██║██╔══╝░░██╔══██║██║░░██║██╔═██╗░\n", color=(YELLOW if supports_color() else None)) + \
-                   ansi_wrap("██║░░░░░░░░██║░░░██║░░██║██║███████╗██║░░██║╚█████╔╝██║░╚██╗\n", color=(YELLOW if supports_color() else None)) + \
-                   ansi_wrap("╚═╝░░░░░░░░╚═╝░░░╚═╝░░╚═╝╚═╝╚══════╝╚═╝░░╚═╝░╚════╝░╚═╝░░╚═╝\n", color=(YELLOW if supports_color() else None)) + \
+                   ansi_wrap("██████╗░██╗░░░██╗██████╗░██╗███████╗██╗░░██╗░█████╗░██╗░░██╗\n", color=BLUE) + \
+                   ansi_wrap("██╔══██╗╚██╗░██╔╝██╔══██╗██║╚════██║██║░░██║██╔══██╗██║░██╔╝\n", color=BLUE) + \
+                   ansi_wrap("██████╔╝░╚████╔╝░██████╔╝██║░░███╔═╝███████║██║░░██║█████═╝░\n", color=BLUE) + \
+                   ansi_wrap("██╔═══╝░░░╚██╔╝░░██╔══██╗██║██╔══╝░░██╔══██║██║░░██║██╔═██╗░\n", color=YELLOW) + \
+                   ansi_wrap("██║░░░░░░░░██║░░░██║░░██║██║███████╗██║░░██║╚█████╔╝██║░╚██╗\n", color=YELLOW) + \
+                   ansi_wrap("╚═╝░░░░░░░░╚═╝░░░╚═╝░░╚═╝╚═╝╚══════╝╚═╝░░╚═╝░╚════╝░╚═╝░░╚═╝\n", color=YELLOW) + \
                    "\n" + \
                    f"                                 ...from Ukraine with love {heart}\n"
     print(flair_string)
-    print(ansi_wrap("Initializing...\n", color=(GREEN if supports_color() else None)))
+    print(ansi_wrap("Initializing...\n", color=GREEN))
 
 
 def kara():
@@ -37,6 +38,9 @@ def kara():
     address = None
     port = None
     protocol = None
+
+    # override script name
+    argv[0] = "pyrizhok.py"
 
     # Parse target address
     if len(argv) < 2:
@@ -119,11 +123,15 @@ def kara():
 
 
 if __name__ == '__main__':
+    colorama.init()
+
     try:
         kara()
     except KeyboardInterrupt:
         print("\nExecution aborted.\n")
     except SystemExit as e:
         print(ansi_wrap(f"Caught SystemExit Exception: {e}", color=(255, 0, 0)))
+
+    colorama.deinit()
 
     input("\nExecution finished.\nPress ENTER to exit... ")
