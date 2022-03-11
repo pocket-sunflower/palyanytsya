@@ -1,3 +1,4 @@
 humanfriendly
 colorama
+validators
 -r MHDDoS/requirements.txt
