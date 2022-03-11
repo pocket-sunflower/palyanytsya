@@ -89,6 +89,7 @@ def receive_target_port_from_input(address: str) -> str:
     port = input()
     if not port:
         port = default_port
+    port = port.strip()
     return port
 
 
@@ -110,6 +111,7 @@ def receive_attack_method_from_input(default_method: str) -> str:
     method = input()
     if not method:
         method = default_method
+    method = method.strip()
     return method
 
 
@@ -133,6 +135,11 @@ def validate_attack_method(port: str, method: str, default_method: str) -> str:
                       f"    For Layer 7: {', '.join(Methods.LAYER7_METHODS)}\n"
                       f"                 (!) NOTE: Layer 7 attack methods only work with ports 80 and 443.")
         method = default_method
+
+    if method == "BOMB":
+        print_warning("Apologies, BOMB method is not supported in Pyrizhok. Please run MHDDoS from sources and consult https://github.com/MHProDev/MHDDoS/wiki/BOMB-method to use it.\n"
+                      f"Will use the default Layer 7 method: 'GET'.")
+        method = "GET"
 
     return method
 
@@ -166,7 +173,7 @@ def kara():
     if len(argv) < 2:
         address = receive_target_address_from_input()
         # quietly allow to pass other arguments together with the address, space-separated
-        all_address_args = address.strip().split(" ")
+        all_address_args = address.strip().split(" ") if address else [None]
         if len(all_address_args) > 1:
             print_notice("Multiple arguments passed with the target address. Validating...")
         for i in range(len(all_address_args)):
@@ -180,6 +187,14 @@ def kara():
         argv.insert(2, str(port))
     if len(argv) > 2:
         port = validate_target_port(argv[2])
+
+    # If using Layer 7 attack method, update address to use the corresponding protocol
+    if validators.url(address) and method in Methods.LAYER7_METHODS:
+        address_no_protocol = address.split("://")[0]
+        if int(port) == 80:
+            address = f"http://{address_no_protocol}"
+        elif int(port) == 443:
+            address = f"https://{address_no_protocol}"
 
     # Parse attack method
     default_method = "UDP"
