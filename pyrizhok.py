@@ -45,7 +45,8 @@ def print_error(message: str):
 
 
 def receive_target_address_from_input() -> str:
-    address = input(f"Provide target {ansi_wrap('address', color='green')}: ")
+    print(f"Provide target {ansi_wrap('address', color='green')}:", end=" ")
+    address = input()
     return address
 
 
@@ -84,7 +85,8 @@ def get_default_port_for_address(address: str) -> int:
 
 def receive_target_port_from_input(address: str) -> str:
     default_port = get_default_port_for_address(address)
-    port = input(f"Provide target {ansi_wrap('port', color='green')} (skip for default = {default_port}): ")
+    print(f"Provide target {ansi_wrap('port', color='green')} (skip for default = {default_port}):", end=" ")
+    port = input()
     if not port:
         port = default_port
     return port
@@ -104,7 +106,8 @@ def validate_target_port(port: str) -> str:
 
 
 def receive_attack_method_from_input(default_method: str) -> str:
-    method = input(f"Provide attack {ansi_wrap('method', color='green')} (skip for default = {default_method}): ")
+    print(f"Provide attack {ansi_wrap('method', color='green')} (skip for default = {default_method}):", end=" ")
+    method = input()
     if not method:
         method = default_method
     return method
@@ -235,7 +238,7 @@ if __name__ == '__main__':
     try:
         kara()
     except KeyboardInterrupt:
-        print("\nExecution aborted.\n")
+        print_error("\nExecution aborted.\n")
     except SystemExit as e:
         print(ansi_wrap(f"Caught SystemExit Exception: {e}", color=(255, 0, 0)))
 
