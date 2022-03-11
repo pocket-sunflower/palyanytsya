@@ -134,6 +134,11 @@ def validate_attack_method(port: str, method: str, default_method: str) -> str:
                       f"                 (!) NOTE: Layer 7 attack methods only work with ports 80 and 443.")
         method = default_method
 
+    if method == "BOMB":
+        print_warning("Apologies, BOMB method is not supported in Pyrizhok. Please run MHDDoS from sources and consult https://github.com/MHProDev/MHDDoS/wiki/BOMB-method to use it.\n"
+                      f"Will use the default Layer 7 method: 'GET'.")
+        method = "GET"
+
     return method
 
 
