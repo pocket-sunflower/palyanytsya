@@ -89,6 +89,7 @@ def receive_target_port_from_input(address: str) -> str:
     port = input()
     if not port:
         port = default_port
+    port = port.strip()
     return port
 
 
@@ -110,6 +111,7 @@ def receive_attack_method_from_input(default_method: str) -> str:
     method = input()
     if not method:
         method = default_method
+    method = method.strip()
     return method
 
 
@@ -171,7 +173,7 @@ def kara():
     if len(argv) < 2:
         address = receive_target_address_from_input()
         # quietly allow to pass other arguments together with the address, space-separated
-        all_address_args = address.strip().split(" ")
+        all_address_args = address.strip().split(" ") if address else [None]
         if len(all_address_args) > 1:
             print_notice("Multiple arguments passed with the target address. Validating...")
         for i in range(len(all_address_args)):
