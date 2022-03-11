@@ -109,6 +109,7 @@ def receive_attack_method_from_input(default_method: str) -> str:
         method = default_method
     return method
 
+
 def validate_attack_method(port: str, method: str, default_method: str) -> str:
     if method == default_method:
         return method
@@ -126,7 +127,8 @@ def validate_attack_method(port: str, method: str, default_method: str) -> str:
         print_warning(f"Invalid attack method provided: '{method}'.\n"
                       f"Will use the default Layer 4 method: '{default_method}'. If you want to override it, restart with one of the valid options:\n"
                       f"    For Layer 4: {', '.join(Methods.LAYER4_METHODS)}\n"
-                      f"    For Layer 7: {', '.join(Methods.LAYER7_METHODS)}\n")
+                      f"    For Layer 7: {', '.join(Methods.LAYER7_METHODS)}\n"
+                      f"                 (!) NOTE: Layer 7 attack methods only work with ports 80 and 443.")
         method = default_method
 
     return method
@@ -161,7 +163,7 @@ def kara():
     if len(argv) < 2:
         address = receive_target_address_from_input()
         # quietly allow to pass other arguments together with the address, space-separated
-        all_address_args = address.split(" ")
+        all_address_args = address.strip().split(" ")
         if len(all_address_args) > 1:
             print_notice("Multiple arguments passed with the target address. Validating...")
         for i in range(len(all_address_args)):
