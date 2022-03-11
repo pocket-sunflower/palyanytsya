@@ -181,6 +181,14 @@ def kara():
     if len(argv) > 2:
         port = validate_target_port(argv[2])
 
+    # If using Layer 7 attack method, update address to use the corresponding protocol
+    if validators.url(address) and method in Methods.LAYER7_METHODS:
+        address_no_protocol = address.split("://")[0]
+        if int(port) == 80:
+            address = f"http://{address_no_protocol}"
+        elif int(port) == 443:
+            address = f"https://{address_no_protocol}"
+
     # Parse attack method
     default_method = "UDP"
     method = default_method
