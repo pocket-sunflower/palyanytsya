@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+import ctypes
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import suppress
 from itertools import cycle
@@ -103,7 +103,7 @@ google_agents = [
 class Counter(object):
 
     def __init__(self, value=0):
-        self._value = RawValue('i', value)
+        self._value = RawValue(ctypes.c_longlong, value)
         self._lock = Lock()
 
     def __iadd__(self, value):
