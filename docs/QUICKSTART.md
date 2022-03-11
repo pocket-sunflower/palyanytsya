@@ -37,9 +37,9 @@
    ```bash
    wget https://github.com/pocket-sunflower/palyanytsya/raw/rozrobka/executables/Linux/pyrizhok
    ```
-3. Запустіть пиріжок з адресою ціліил:
+3. Запустіть пиріжок:
    ```bash
-   ./pyrizhok https://voenny.korabl.net
+   ./pyrizhok
    ```
 
 Коли настане час провітрити хату, натисніть _Ctrl+C_ або просто закрийте вікно з програмою.
