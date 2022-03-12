@@ -89,7 +89,7 @@ def receive_target_port_from_input(address: str) -> str:
     port = input()
     if not port:
         port = default_port
-    port = port.strip()
+    port = str(port).strip()
     return port
 
 
