@@ -189,8 +189,8 @@ def kara():
         port = validate_target_port(argv[2])
 
     # If using Layer 7 attack method, update address to use the corresponding protocol
-    if validators.url(address) and method in Methods.LAYER7_METHODS:
-        address_no_protocol = address.split("://")[0]
+    if validators.url(address):
+        address_no_protocol = address.split("://")[1]
         if int(port) == 80:
             address = f"http://{address_no_protocol}"
         elif int(port) == 443:
