@@ -80,7 +80,7 @@ def get_default_port_for_address(address: str) -> int:
         elif protocol == "https":
             default_port = 443
 
-    return 80
+    return default_port
 
 
 def receive_target_port_from_input(address: str) -> str:
