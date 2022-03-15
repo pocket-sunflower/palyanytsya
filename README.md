@@ -121,7 +121,7 @@ palyanytsya.py help
 
 3. Активуємо середовище та встановлюємо залежності:
     ```bash
-    source venv/bin/activate7
+    source venv/bin/activate
     pip install -r requirements.txt
     ```
 
