@@ -112,10 +112,12 @@ def receive_attack_method_from_input(default_method: str) -> str:
     if not method:
         method = default_method
     method = method.strip()
+    method = method.upper()
     return method
 
 
 def validate_attack_method(port: str, method: str, default_method: str) -> str:
+    method = method.upper()
     if method == default_method:
         return method
 
