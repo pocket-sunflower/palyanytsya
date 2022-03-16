@@ -166,6 +166,13 @@ def kara():
     port = None
     method = None
 
+    # Ask for input only if no parameters were passed through command line
+    ask_for_input = len(argv) < 2
+    if not ask_for_input:
+        n_args = len(argv) - 1
+        args_string = "arguments" if n_args > 1 else "argument"
+        print_notice(f"{n_args} {args_string} supplied on launch. Not asking for user input.")
+
     # Override script name
     argv[0] = "pyrizhok.py"
 
@@ -182,7 +189,12 @@ def kara():
         address = validate_target_address(argv[1])
 
     # Parse target port
-    if len(argv) < 3:
+    if not ask_for_input:
+        if len(argv) < 3:
+            port = get_default_port_for_address(address)
+            print_notice(f"No port provided. Using default = {port}.")
+            argv.insert(2, str(port))
+    elif len(argv) < 3:
         port = receive_target_port_from_input(address)
         argv.insert(2, str(port))
     if len(argv) > 2:
@@ -199,7 +211,12 @@ def kara():
     # Parse attack method
     default_method = "UDP"
     method = default_method
-    if len(argv) < 4:
+    if not ask_for_input:
+        if len(argv) < 4:
+            method = default_method
+            print_notice(f"No attack method provided. Using default = {method}.")
+            argv.insert(3, method)
+    elif len(argv) < 4:
         method = receive_attack_method_from_input(default_method)
         argv.insert(3, method)
     if len(argv) > 3:
