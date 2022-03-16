@@ -1,9 +1,7 @@
 #!/bin/bash
 
-docker login --username pocketsunflower --password "$1"
+docker login ghcr.io --username "pocket-sunflower" --password "$1"
 
-docker image tag pocketsunflower/palyanytsya:latest pocketsunflower/palyanytsya:latest
-docker push pocketsunflower/palyanytsya:latest
+docker push ghcr.io/pocket-sunflower/palyanytsya:latest
 
-docker image tag pocketsunflower/pyrizhok:latest pocketsunflower/pyrizhok:latest
-docker push pocketsunflower/pyrizhok:latest
+docker push ghcr.io/pocket-sunflower/pyrizhok:latest

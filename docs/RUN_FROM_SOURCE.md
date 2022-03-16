@@ -272,30 +272,30 @@
    > **ℹ** На Windows, відкрийте Linux-термінал з WSL.
 3. Запустіть контейнер з **пиріжком**:
      ```bash
-     docker run --rm -it pocketsunflower/pyrizhok:latest
+     docker run --rm -it ghcr.io/pocket-sunflower/pyrizhok:latest
      ```
      ...або з **паляницею**:
      ```bash
-     docker run --rm -it pocketsunflower/palyanytsya:latest 194.85.30.210 5 100 socks5.txt 10000 3600
+     docker run --rm -it ghcr.io/pocket-sunflower/palyanytsya:latest 194.85.30.210 5 100 socks5.txt 10000 3600
      ```
 
 Якщо треба бути перезапустити контейнер та при цьому завантажити найновішу версію:
    
 1. Видаліть локальний образ:
    ```bash
-   docker image rm --force pocketsunflower/pyrizhok:latest
+   docker image rm --force ghcr.io/pocket-sunflower/pyrizhok:latest
    ```
    ...або:
    ```bash 
-   docker image rm --force pocketsunflower/palyanytsya:latest 
+   docker image rm --force ghcr.io/pocket-sunflower/palyanytsya:latest 
    ```
 4. Запустіть новий контейнер (найновіша версія завантажиться автоматично):
      ```bash
-     docker run --rm -it pocketsunflower/pyrizhok:latest
+     docker run --rm -it ghcr.io/pocket-sunflower/pyrizhok:latest
      ```
      ...або:
      ```bash
-     docker run --rm -it pocketsunflower/palyanytsya:latest 194.85.30.210 5 100 socks5.txt 10000 3600
+     docker run --rm -it ghcr.io/pocket-sunflower/palyanytsya:latest 194.85.30.210 5 100 socks5.txt 10000 3600
      ```
 
 І нехай ворожі сервери палають! 🔥

