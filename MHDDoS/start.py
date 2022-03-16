@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import ctypes
+import os
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import suppress
 from itertools import cycle
@@ -1427,8 +1429,10 @@ def start():
                     rpc = int(argv[6])
                     timer = int(argv[7])
                     proxy_ty = int(argv[3].strip())
-                    proxy_li = Path(__dir__ / "files/proxies/" /
-                                    argv[5].strip())
+                    proxy_path_relative = argv[5].strip()
+                    proxy_li = Path(os.getcwd()).joinpath(Path(proxy_path_relative))
+                    if not proxy_li.exists():  # if the file does not exist, find it in the MHDDoS default proxies directory
+                        proxy_li = Path(__dir__ / "files/proxies/" / proxy_path_relative)
                     useragent_li = Path(__dir__ / "files/useragent.txt")
                     referers_li = Path(__dir__ / "files/referers.txt")
                     global bombardier_path
@@ -1515,7 +1519,10 @@ def start():
                                 if len(argv) == 8:
                                     logger.setLevel("DEBUG")
                                 proxy_ty = int(argfive)
-                                proxy_li = Path(__dir__ / "files/proxies" / argv[6].strip())
+                                proxy_path_relative = argv[6].strip()
+                                proxy_li = Path(os.getcwd()).joinpath(Path(proxy_path_relative))
+                                if not proxy_li.exists():  # if the file does not exist, find it in the MHDDoS default proxies directory
+                                    proxy_li = Path(__dir__ / "files/proxies/" / proxy_path_relative)
                                 proxies = handleProxyList(con, proxy_li, proxy_ty, threads)
                                 if method not in {"MINECRAFT", "MCBOT", "TCP"}:
                                     exit("this method cannot use for layer4 proxy")
