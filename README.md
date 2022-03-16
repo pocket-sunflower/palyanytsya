@@ -1,5 +1,16 @@
 # Паляниця
 
+../README.md)
+https://github.com/pocket-sunflower/palyanytsya#parameters
+https://virtualenv.pypa.io/en/latest/
+https://git-scm.com/download/win
+https://www.python.org/downloads/release/python-3102/
+https://pypi.org/project/impacket/
+https://support.microsoft.com/uk-ua/windows/%D0%B4%D0%BE%D0%B4%D0%B0%D0%B2%D0%B0%D0%BD%D0%BD%D1%8F-%D0%B2%D0%B8%D0%BD%D1%8F%D1%82%D0%BA%D1%83-%D0%B4%D0%BE-%D1%81%D0%BB%D1%83%D0%B6%D0%B1%D0%B8-%D0%B1%D0%B5%D0%B7%D0%BF%D0%B5%D0%BA%D0%B0-%D1%83-windows-811816c0-4dfd-af4a-47e4-c301afe13b26
+https://git-scm.com/book/en/v2/Getting-Started-Installing-Git
+https://brew.sh/
+https://docs.docker.com/desktop/windows/install/
+https://docs.docker.com/desktop/mac/install/
 ![GitHub last commit](https://img.shields.io/github/last-commit/pocket-sunflower/palyanytsya)
 [![Python 3.10](https://img.shields.io/badge/python-3.10-f.svg)](https://www.python.org/downloads/release/python-360/)
 ![](https://img.shields.io/github/license/pocket-sunflower/palyanytsya)
@@ -20,9 +31,8 @@
 - [🔥 Мотивація](#motivation)
 - [🔧 Технічні деталі](#technical)
   - [📑 Параметри](#parameters)
-  - [🍞 Випічка](#building)
-  - [🥐 Випічка (самостійно)][docs-building-detailed]
-  - [🥡 Запуск вихідного коду](#run-from-source)
+  - [🍞 Випічка](#builds) / [детальний гайд][docs-builds-detailed]
+  - [🥡 Запуск вихідного коду](#run-from-source) / [детальний гайд][docs-run-from-source-detailed]
 - [🚀 Плани та колаборація](#plans-and-collaboration)
 
 ---
@@ -84,11 +94,11 @@ palyanytsya.py help
 
 
 
-### <a name="building"></a>🍞 Випічка
+### <a name="builds"></a>🍞 Випічка
 
 Паляниця та пиріжок запаковані в декілька різних форматів, аби зменшити час на налаштування і запуск до мінімуму.
 
-> **ℹ** Детальний гайд про те, як самостійно запекти пиріжок та паляницю [можна знайти тут][docs-building-detailed].
+> **ℹ** Детальний гайд про те, як самостійно запекти пиріжок та паляницю [можна знайти тут][docs-builds-detailed].
 
 **PyInstaller 🐍** Standalone версії обох програм запаковані за допомогою [PyInstaller][pyinstaller]. Python-скрипти для створення білдів можна знайти у папці [build_scripts_PyInstaller](build_scripts_PyInstaller). Зауважте, що білд створюється для тієї ж платформи, на якій запущено скрипт (наприклад, щоб збілдити проект на Mac - треба запустити бідповідний білд на машині з macOS). Вихідні файли знаходяться у своїх папках:
 - 💻 Білди .exe для Windows – в [executables/Windows](executables/Windows).
@@ -99,29 +109,31 @@ palyanytsya.py help
 - [pocketsunflower/pyrizhok:latest][dockerhub-pyrizhok]
 - [pocketsunflower/palyanytsya:latest][dockerhub-palyanytsya]
 
-Якщо хочете створити білди самостійно – ласкаво просимо в [детальний гайд][docs-building-detailed].
+Якщо хочете створити білди самостійно – ласкаво просимо в [детальний гайд][docs-builds-detailed].
 
 
 
 ### <a name="run-from-source"></a>🥡 Запуск вихідного коду
 
-Щоби запустити пиріжок чи паляницю з джерела:
+Щоби запустити пиріжок чи паляницю з джерела на Linux:
 
-1. Клонуємо цей репозиторій:
+> **ℹ️** Детальніші інструкції про те, як запустити програму з вихідного коду [можна знайти тут][docs-run-from-source-detailed].
+
+1. Клонуємо цей репозиторій та заходимо в папку з кодом:
     ```bash
     git clone https://github.com/pocket-sunflower/palyanytsya
+   cd palyanytsya 
     ```
 
-2. Заходимо в папку та створюємо віртуальне середовише:
+2. Створюємо віртуальне середовище та активуємо його:
     > **⚠** Паляниця з пиріжком потребують версію Python не менше ніж [**3.10.2**](https://www.python.org/downloads/release/python-3102/).
     ```bash
-    cd palyanytsya
-    virtualenv --python python3.10 venv
+    python3 -m virtualenv --python python3.10 venv
+    source venv/bin/activate
     ```
 
-3. Активуємо середовище та встановлюємо залежності:
+3. Встановлюємо залежності:
     ```bash
-    source venv/bin/activate
     pip install -r requirements.txt
     ```
 
@@ -134,6 +146,8 @@ palyanytsya.py help
     ```
 
     …і те, що за адресою, відправляється вслєд за рускім корабльом.
+
+Щоби дізнатися, я запускати пиріжок та паляницю на кожній з доступних платформ, [ласкаво просимо в детальніший гайд][docs-run-from-source-detailed].
 
 ---
 
@@ -169,5 +183,6 @@ palyanytsya.py help
 [dockerhub-pyrizhok]: https://hub.docker.com/repository/docker/pocketsunflower/pyrizhok
 [dockerhub-palyanytsya]: https://hub.docker.com/repository/docker/pocketsunflower/palyanytsya
 [same-tak]: https://www.nslookup.io/dns-records/mid.ru
-[docs-building-detailed]: docs/BUILDS.md
 [docs-quickstart]: docs/QUICKSTART.md
+[docs-builds-detailed]: docs/BUILDS.md
+[docs-run-from-source-detailed]: docs/RUN_FROM_SOURCE.md
