@@ -7,6 +7,8 @@
 - [🍎 Mac (Intel)](#mac-intel) / [🍏 Mac (M1)](#mac-m1)
 - [🐋 Docker](#docker)
 
+> **ℹ** Якщо ви не довіряєте готовим білдам, скористайтеся [інструкцією для запуску паляниці з вихідного коду](RUN_FROM_SOURCE.md).
+
 ---
 
 ### <a name="windows"></a>💻 Windows 
@@ -94,6 +96,17 @@
 
 ---
 
+<div style="text-align: center">Все буде Україна 💙💛</div>
+
+[← Назад до головної](../README.md)
+
+
+<!--- References --->
+[mhddos-github]: https://github.com/MHProDev/MHDDoS
+[pyrizhok-build-windows]: https://github.com/pocket-sunflower/palyanytsya/raw/rozrobka/executables/Windows/pyrizhok.exe
+[pyrizhok-build-linux]: https://github.com/pocket-sunflower/palyanytsya/raw/rozrobka/executables/Linux/pyrizhok
+[pyrizhok-build-mac-intel]: https://github.com/pocket-sunflower/palyanytsya/raw/rozrobka/executables/Mac%20(Intel)/pyrizhok
+[pyrizhok-build-mac-m1]: https://github.com/pocket-sunflower/palyanytsya/blob/rozrobka/executables/Mac%20(M1)/pyrizhok
 <div style="text-align: center">Все буде Україна 💙💛</div>
 
 [← Назад до головної](../README.md)
