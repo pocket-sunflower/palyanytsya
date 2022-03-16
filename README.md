@@ -1,16 +1,5 @@
 # Паляниця
 
-../README.md)
-https://github.com/pocket-sunflower/palyanytsya#parameters
-https://virtualenv.pypa.io/en/latest/
-https://git-scm.com/download/win
-https://www.python.org/downloads/release/python-3102/
-https://pypi.org/project/impacket/
-https://support.microsoft.com/uk-ua/windows/%D0%B4%D0%BE%D0%B4%D0%B0%D0%B2%D0%B0%D0%BD%D0%BD%D1%8F-%D0%B2%D0%B8%D0%BD%D1%8F%D1%82%D0%BA%D1%83-%D0%B4%D0%BE-%D1%81%D0%BB%D1%83%D0%B6%D0%B1%D0%B8-%D0%B1%D0%B5%D0%B7%D0%BF%D0%B5%D0%BA%D0%B0-%D1%83-windows-811816c0-4dfd-af4a-47e4-c301afe13b26
-https://git-scm.com/book/en/v2/Getting-Started-Installing-Git
-https://brew.sh/
-https://docs.docker.com/desktop/windows/install/
-https://docs.docker.com/desktop/mac/install/
 ![GitHub last commit](https://img.shields.io/github/last-commit/pocket-sunflower/palyanytsya)
 [![Python 3.10](https://img.shields.io/badge/python-3.10-f.svg)](https://www.python.org/downloads/release/python-360/)
 ![](https://img.shields.io/github/license/pocket-sunflower/palyanytsya)
