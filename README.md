@@ -3,8 +3,10 @@
 ![GitHub last commit](https://img.shields.io/github/last-commit/pocket-sunflower/palyanytsya)
 [![Python 3.10](https://img.shields.io/badge/python-3.10-f.svg)](https://www.python.org/downloads/release/python-360/)
 ![](https://img.shields.io/github/license/pocket-sunflower/palyanytsya)
-![](https://img.shields.io/docker/pulls/pocketsunflower/pyrizhok?label=pyrizhok%20docker%20pulls)
-![](https://img.shields.io/docker/pulls/pocketsunflower/palyanytsya?label=palyanytsya%20docker%20pulls)
+
+[//]: # (![]&#40;https://img.shields.io/docker/pulls/pocketsunflower/pyrizhok?label=pyrizhok%20docker%20pulls&#41;)
+
+[//]: # (![]&#40;https://img.shields.io/docker/pulls/pocketsunflower/palyanytsya?label=palyanytsya%20docker%20pulls&#41;)
 
 Цифрова зброя проти xуйлoвської пропаганди.
 
@@ -94,9 +96,9 @@ palyanytsya.py help
 - 🐧 Білди для Linux – в [executables/Linux](executables/Linux).
 - 🍎 Білди для Mac – в [executables/Mac (Intel)](executables/Mac%20(Intel)) та [executables/Mac (M1)](executables/Mac%20(M1)).
 
-**Docker 🐋** Скрипти для збирання Docker-контейнерів та самі Dockerфайли знаходяться в папці [build_scripts_Docker](build_scripts_Docker). Найновіші версії обох контейнерів також доступні у репозиторії Docker Hub:
-- [pocketsunflower/pyrizhok:latest][dockerhub-pyrizhok]
-- [pocketsunflower/palyanytsya:latest][dockerhub-palyanytsya]
+**Docker 🐋** Скрипти для збирання Docker-контейнерів та самі Dockerфайли знаходяться в папці [build_scripts_Docker](build_scripts_Docker). Найновіші версії обох контейнерів також доступні у репозиторії GitHub:
+- **ghcr.io/pocket-sunflower/pyrizhok:latest**
+- **ghcr.io/pocket-sunflower/palyanytsya:latest**
 
 Якщо хочете створити білди самостійно – ласкаво просимо в [детальний гайд][docs-builds-detailed].
 
