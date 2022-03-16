@@ -96,6 +96,8 @@
 
 <div style="text-align: center">Все буде Україна 💙💛</div>
 
+[← Назад до головної](../README.md)
+
 
 <!--- References --->
 [mhddos-github]: https://github.com/MHProDev/MHDDoS
