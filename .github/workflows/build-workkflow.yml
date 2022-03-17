@@ -1,0 +1,30 @@
+name: Build Workflow
+on:
+  push:
+    branches:
+      - feature/ci-test
+    paths-ignore:
+      - "executables/**"
+      - "docs/**"
+      - "README.md"
+jobs:
+  build-for-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+      - name: Setup Python 3.10.2
+        uses: actions/setup-python@v3.10.2
+      - name: Install requirements
+        run: python3 -m pip install -r requirements.txt
+      - run: cd build_scripts_PyInstaller
+      - name: Build Linux distro with PyInstaller
+        run: python3 -m build_for_linux.py
+#  build-for-windows:
+#    runs-on: windows-latest
+#    steps:
+#      - run: echo "Hello Windows"
+#  build-for-macos:
+#    runs-on: macos-latest
+#    steps:
+#      - run: echo "Hello macOS"
