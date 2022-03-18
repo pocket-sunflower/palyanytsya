@@ -8,6 +8,13 @@ on:
       - "executables/**"
       - "docs/**"
       - "README.md"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: ""
+        type: string
+        default: DEV
+        required: true
 jobs:
   build-for-linux:
     runs-on: ubuntu-latest
