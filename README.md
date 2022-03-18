@@ -3,9 +3,9 @@
 ![GitHub last commit](https://img.shields.io/github/last-commit/pocket-sunflower/palyanytsya)
 [![Python 3.10](https://img.shields.io/badge/python-3.10-f.svg)](https://www.python.org/downloads/release/python-360/)
 ![](https://img.shields.io/github/license/pocket-sunflower/palyanytsya)
-![](https://img.shields.io/github/workflow/status/pocket-sunflower/palyanytsya/build-workflow)
-
 ![](https://github.com/pocket-sunflower/palyanytsya/actions/workflows/build-workflow.yml/badge.svg)
+
+[//]: # (![]&#40;https://img.shields.io/github/workflow/status/pocket-sunflower/palyanytsya/build-workflow&#41;)
 
 [//]: # (![]&#40;https://img.shields.io/docker/pulls/pocketsunflower/pyrizhok?label=pyrizhok%20docker%20pulls&#41;)
 
