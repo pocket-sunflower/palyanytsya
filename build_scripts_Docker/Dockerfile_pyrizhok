@@ -3,13 +3,15 @@ FROM python:3.10.2-slim-buster
 RUN apt update -y
 RUN apt install -y git
 
-COPY ../MHDDoS /app/MHDDoS/
-COPY ../requirements.txt /app/
+COPY MHDDoS /app/MHDDoS/
+COPY requirements.txt /app/
 RUN pip install -r /app/requirements.txt
 
-COPY ../pyrizhok.py ../utils.py /app/
-COPY ../build_scripts_Docker/docker_entrypoint_pyrizhok.sh /app/
+COPY pyrizhok.py utils.py /app/
+COPY build_scripts_Docker/docker_entrypoint_pyrizhok.sh /app/
 
 WORKDIR /app
+
+RUN ["chmod", "+x", "./docker_entrypoint_pyrizhok.sh"]
 
 ENTRYPOINT ["./docker_entrypoint_pyrizhok.sh"]

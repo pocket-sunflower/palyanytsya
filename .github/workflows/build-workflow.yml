@@ -1,0 +1,144 @@
+name: Build Workflow
+on:
+  push:
+    branches:
+      - main
+      - feature/ci-test
+    paths-ignore:
+      - "executables/**"
+      - "docs/**"
+      - "README.md"
+jobs:
+  build-for-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+      - name: Setup Python 3.10.2
+        uses: actions/setup-python@v3
+        with:
+          python-version: '3.10.2'
+      - name: Install requirements
+        run: python3 -m pip install -r requirements.txt
+      - name: Package Linux executables with PyInstaller
+        working-directory: build_scripts_PyInstaller
+        run: python3 build_for_linux.py
+      - name: Upload palyanytsya artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: palyanytsya-build-linux
+          path: executables/Linux/palyanytsya
+      - name: Upload pyrizhok artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: pyrizhok-build-linux
+          path: executables/Linux/pyrizhok
+  build-for-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+      - name: Setup Python 3.10.2
+        uses: actions/setup-python@v3
+        with:
+          python-version: '3.10.2'
+      - name: Install requirements
+        run: py -m pip install -r requirements.txt
+      - name: Package Windows executables with PyInstaller
+        working-directory: build_scripts_PyInstaller
+        run: py build_for_windows.py
+      - name: Upload palyanytsya artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: palyanytsya-build-windows
+          path: executables/Windows/palyanytsya.exe
+      - name: Upload pyrizhok artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: pyrizhok-build-windows
+          path: executables/Windows/pyrizhok.exe
+  build-for-macos-intel:
+    runs-on: macos-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+      - name: Setup Python 3.10.2
+        uses: actions/setup-python@v3
+        with:
+          python-version: '3.10.2'
+      - name: Install requirements
+        run: python3 -m pip install -r requirements.txt
+      - name: Package Mac (Intel) executables with PyInstaller
+        working-directory: build_scripts_PyInstaller
+        run: python3 build_for_mac_intel.py
+      - name: Upload palyanytsya artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: palyanytsya-build-mac-intel
+          path: executables/Mac (Intel)/palyanytsya
+      - name: Upload pyrizhok artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: pyrizhok-build-mac-intel
+          path: executables/Mac (Intel)/pyrizhok
+  push-executables:
+    runs-on: ubuntu-latest
+    needs:
+      - build-for-linux
+      - build-for-windows
+      - build-for-macos-intel
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+      - name: Download palyanytsya Linux build artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: palyanytsya-build-linux
+          path: executables/Linux
+      - name: Download pyrizhok Linux build artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: pyrizhok-build-linux
+          path: executables/Linux
+      - name: Download palyanytsya Windows build artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: palyanytsya-build-windows
+          path: executables/Windows
+      - name: Download pyrizhok Windows build artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: pyrizhok-build-windows
+          path: executables/Windows
+      - name: Download palyanytsya Mac (Intel) build artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: palyanytsya-build-mac-intel
+          path: executables/Mac (Intel)
+      - name: Download pyrizhok Mac (Intel) build artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: pyrizhok-build-mac-intel
+          path: executables/Mac (Intel)
+      - name: Commit and push changes
+        uses: devops-infra/action-commit-push@v0.8.4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          commit_message: "[CI] Update executables"
+  publish-dockers:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+      - name: Login to ghcr.io
+        uses: docker/login-action@v1.14.1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build the containers
+        run: bash build_scripts_Docker/build_dockers.sh
+      - name: List Docker images
+        run: docker images
+      - name: Publish the containers
+        run: bash build_scripts_Docker/push_dockers.sh ${{ secrets.GITHUB_TOKEN }}
