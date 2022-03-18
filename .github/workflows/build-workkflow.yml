@@ -47,10 +47,6 @@ jobs:
     steps:
       - name: Check out repository code
         uses: actions/checkout@v3
-      - name: Remove
-        run: rm -rf executables
-      - name: Check
-        run: ls executables/Linux
       - name: Download palyanytsya Linux build artifact
         uses: actions/download-artifact@v3
         with:
@@ -61,9 +57,12 @@ jobs:
         with:
           name: pyrizhok-build-linux
           path: executables/Linux
-      - name: Check
-        run: ls executables/Linux
-  deploy-dockers:
+      - name: Commit and push changes
+        uses: devops-infra/action-commit-push@v0.8.4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          commit_message: "[AUTO] Update Linux builds"
+  publish-dockers:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository code
