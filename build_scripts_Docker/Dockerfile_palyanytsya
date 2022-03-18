@@ -12,4 +12,6 @@ COPY build_scripts_Docker/docker_entrypoint_palyanytsya.sh /app/
 
 WORKDIR /app
 
+RUN ["chmod", "+x", "./docker_entrypoint_palyanytsya.sh"]
+
 ENTRYPOINT ["./docker_entrypoint_palyanytsya.sh"]

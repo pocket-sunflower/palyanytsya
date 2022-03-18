@@ -61,7 +61,7 @@ jobs:
         uses: devops-infra/action-commit-push@v0.8.4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          commit_message: "[AUTO] Update Linux builds"
+          commit_message: "[CI] Update executables"
   publish-dockers:
     runs-on: ubuntu-latest
     steps:
