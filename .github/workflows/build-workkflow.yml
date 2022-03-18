@@ -22,7 +22,8 @@ jobs:
 #      - name: Go to PyInstaller builds folder
 #        run: cd build_scripts_PyInstaller
       - name: Build Linux distro with PyInstaller
-        run: python3 -m build_scripts_PyInstaller/build_for_linux.py
+        working-directory: build_scripts_PyInstaller
+        run: python3 -m build_for_linux.py
 #  build-for-windows:
 #    runs-on: windows-latest
 #    steps:
@@ -51,9 +52,11 @@ jobs:
 #      - name: List after
 #        run: ls
       - name: Build the containers
-        run: bash build_scripts_Docker/build_dockers.sh
+        working-directory: build_scripts_Docker
+        run: bash build_dockers.sh
       - name: Publish the containers
-        run: bash build_scripts_Docker/push_dockers.sh ${{ secrets.GITHUB_TOKEN }}
+        working-directory: build_scripts_Docker
+        run: bash push_dockers.sh ${{ secrets.GITHUB_TOKEN }}
 #      - name: Install requirements
 #        run: python3 -m pip install -r requirements.txt
 #      - name: Go into builds folder
