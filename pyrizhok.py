@@ -163,8 +163,6 @@ def kara():
     print_flair()
     print_vpn_warning()
 
-    print("\nCI VALIDATION\n")
-
     # Init variables
     address = None
     port = None

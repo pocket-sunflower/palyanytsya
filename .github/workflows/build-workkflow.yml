@@ -32,18 +32,60 @@ jobs:
         with:
           name: pyrizhok-build-linux
           path: executables/Linux/pyrizhok
-#  build-for-windows:
-#    runs-on: windows-latest
-#    steps:
-#      - run: echo "Hello Windows"
-#  build-for-macos:
-#    runs-on: macos-latest
-#    steps:
-#      - run: echo "Hello macOS"
+  build-for-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+      - name: Setup Python 3.10.2
+        uses: actions/setup-python@v3
+        with:
+          python-version: '3.10.2'
+      - name: Install requirements
+        run: py -m pip install -r requirements.txt
+      - name: Package Windows executables with PyInstaller
+        working-directory: build_scripts_PyInstaller
+        run: py build_for_windows.py
+      - name: Upload palyanytsya artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: palyanytsya-build-windows
+          path: executables/Windows/palyanytsya.exe
+      - name: Upload pyrizhok artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: pyrizhok-build-windows
+          path: executables/Windows/pyrizhok.exe
+  build-for-macos-intel:
+    runs-on: macos-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+      - name: Setup Python 3.10.2
+        uses: actions/setup-python@v3
+        with:
+          python-version: '3.10.2'
+      - name: Install requirements
+        run: python3 -m pip install -r requirements.txt
+      - name: Package Mac (Intel) executables with PyInstaller
+        working-directory: build_scripts_PyInstaller
+        run: python3 build_for_mac_intel.py
+      - name: Upload palyanytsya artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: palyanytsya-build-mac-intel
+          path: executables/Mac (Intel)/palyanytsya
+      - name: Upload pyrizhok artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: pyrizhok-build-mac-intel
+          path: executables/Mac (Intel)/pyrizhok
   push-executables:
     runs-on: ubuntu-latest
     needs:
       - build-for-linux
+      - build-for-windows
+      - build-for-macos-intel
     steps:
       - name: Check out repository code
         uses: actions/checkout@v3
