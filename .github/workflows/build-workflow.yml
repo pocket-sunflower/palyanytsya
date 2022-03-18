@@ -99,6 +99,26 @@ jobs:
         with:
           name: pyrizhok-build-linux
           path: executables/Linux
+      - name: Download palyanytsya Windows build artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: palyanytsya-build-windows
+          path: executables/Windows
+      - name: Download pyrizhok Windows build artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: pyrizhok-build-windows
+          path: executables/Windows
+      - name: Download palyanytsya Mac (Intel) build artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: palyanytsya-build-mac-intel
+          path: executables/Mac (Intel)
+      - name: Download pyrizhok Mac (Intel) build artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: pyrizhok-build-mac-intel
+          path: executables/Mac (Intel)
       - name: Commit and push changes
         uses: devops-infra/action-commit-push@v0.8.4
         with:
