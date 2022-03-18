@@ -14,4 +14,4 @@ WORKDIR /app
 
 RUN ls
 
-ENTRYPOINT ["./docker_entrypoint_pyrizhok.sh"]
+ENTRYPOINT ["docker_entrypoint_pyrizhok.sh"]

@@ -42,13 +42,15 @@ jobs:
 #      - run: echo "Hello macOS"
   push-executables:
     runs-on: ubuntu-latest
-    needs: 
+    needs:
       - build-for-linux
     steps:
       - name: Check out repository code
         uses: actions/checkout@v3
       - name: Remove
         run: rm -rf executables
+      - name: Check
+        run: ls executables/Linux
       - name: Download palyanytsya Linux build artifact
         uses: actions/download-artifact@v3
         with:
