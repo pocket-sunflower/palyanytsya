@@ -44,8 +44,12 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: List before
+        run: ls
       - name: Go to Docker builds folder
         run: cd build_scripts_Docker
+      - name: List after
+        run: ls
       - name: Build the containers
         run: bash build_dockers.sh
       - name: Publish the containers
