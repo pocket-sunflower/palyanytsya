@@ -44,8 +44,12 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-#      - name: Go to PyInstaller builds folder
-#        run: cd build_scripts_PyInstaller
+      - name: Go to Docker builds folder
+        run: cd build_scripts_Docker
+      - name: Build the containers
+        run: bash build_dockers.sh
+      - name: Publish the containers
+        run: bash push_dockers.sh ${{ secrets.GITHUB_TOKEN }}
 #      - name: Install requirements
 #        run: python3 -m pip install -r requirements.txt
 #      - name: Go into builds folder
