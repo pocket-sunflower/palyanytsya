@@ -5,7 +5,7 @@
 ![](https://img.shields.io/github/license/pocket-sunflower/palyanytsya)
 ![](https://img.shields.io/github/workflow/status/pocket-sunflower/palyanytsya/build-workflow)
 
-[//]: # (![]&#40;https://github.com/pocket-sunflower/palyanytsya/actions/workflows/build-workflow.yml/badge.svg&#41;)
+![](https://github.com/pocket-sunflower/palyanytsya/actions/workflows/build-workflow.yml/badge.svg)
 
 [//]: # (![]&#40;https://img.shields.io/docker/pulls/pocketsunflower/pyrizhok?label=pyrizhok%20docker%20pulls&#41;)
 
