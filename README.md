@@ -95,13 +95,14 @@ palyanytsya.py help
 > **ℹ** Детальний гайд про те, як самостійно запекти пиріжок та паляницю [можна знайти тут][docs-builds-detailed].
 
 **PyInstaller 🐍** Standalone версії обох програм запаковані за допомогою [PyInstaller][pyinstaller]. Python-скрипти для створення білдів можна знайти у папці [build_scripts_PyInstaller](build_scripts_PyInstaller). Зауважте, що білд створюється для тієї ж платформи, на якій запущено скрипт (наприклад, щоб збілдити проект на Mac - треба запустити бідповідний білд на машині з macOS). Вихідні файли знаходяться у своїх папках:
-- 💻 Білди .exe для Windows – в [executables/Windows](executables/Windows).
-- 🐧 Білди для Linux – в [executables/Linux](executables/Linux).
-- 🍎 Білди для Mac – в [executables/Mac (Intel)](executables/Mac%20(Intel)) та [executables/Mac (M1)](executables/Mac%20(M1)).
+- 💻 Білди .exe для Windows – в [**executables/Windows**](executables/Windows).
+- 🐧 Білди для Linux – в [**executables/Linux**](executables/Linux).
+- 🍎 Білди для Mac – в [**executables/Mac (Intel)**](executables/Mac%20(Intel)) та [**executables/Mac (M1)**](executables/Mac%20(M1)).
+  > **⚠** Наразі, білди для **Mac (M1)** не автоматизовані через [брак цієї архітектури в GitHub hosted runners][mac-m1-github-runners]. Тож, якщо у вас виникають проблеми із запуском на M1, дайте нам знати – ми оновимо білд власноруч.
 
 **Docker 🐋** Скрипти для збирання Docker-контейнерів та самі Dockerфайли знаходяться в папці [build_scripts_Docker](build_scripts_Docker). Найновіші версії обох контейнерів також доступні у репозиторії GitHub:
-- **ghcr.io/pocket-sunflower/pyrizhok:latest**
-- **ghcr.io/pocket-sunflower/palyanytsya:latest**
+- [**ghcr.io/pocket-sunflower/pyrizhok:latest**][ghcr-pyrizhok]
+- [**ghcr.io/pocket-sunflower/palyanytsya:latest**][ghcr-palyanytsya]
 
 Якщо хочете створити білди самостійно – ласкаво просимо в [детальний гайд][docs-builds-detailed].
 
@@ -175,8 +176,9 @@ palyanytsya.py help
 [db1000n-targets]: https://github.com/db1000n-coordinators/LoadTestConfig/blob/main/config.json
 [repo-issues]: https://github.com/pocket-sunflower/palyanytsya/issues
 [repo-pull-requests]: https://github.com/pocket-sunflower/palyanytsya/pulls
-[dockerhub-pyrizhok]: https://hub.docker.com/repository/docker/pocketsunflower/pyrizhok
-[dockerhub-palyanytsya]: https://hub.docker.com/repository/docker/pocketsunflower/palyanytsya
+[ghcr-pyrizhok]: https://github.com/pocket-sunflower/palyanytsya/pkgs/container/pyrizhok
+[ghcr-palyanytsya]: https://github.com/pocket-sunflower/palyanytsya/pkgs/container/palyanytsya
+[mac-m1-github-runners]: https://github.com/actions/virtual-environments/issues/2187
 [same-tak]: https://www.nslookup.io/dns-records/mid.ru
 [docs-quickstart]: docs/QUICKSTART.md
 [docs-builds-detailed]: docs/BUILDS.md
