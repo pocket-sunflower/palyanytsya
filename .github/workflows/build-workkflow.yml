@@ -19,10 +19,10 @@ jobs:
           python-version: '3.10.2'
       - name: Install requirements
         run: python3 -m pip install -r requirements.txt
-      - name: Go to PyInstaller builds folder
-        run: cd build_scripts_PyInstaller
+#      - name: Go to PyInstaller builds folder
+#        run: cd build_scripts_PyInstaller
       - name: Build Linux distro with PyInstaller
-        run: python3 -m build_for_linux.py
+        run: python3 -m build_scripts_PyInstaller/build_for_linux.py
 #  build-for-windows:
 #    runs-on: windows-latest
 #    steps:
@@ -44,16 +44,16 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: List before
-        run: ls
-      - name: Go to Docker builds folder
-        run: cd build_scripts_Docker
-      - name: List after
-        run: ls
+#      - name: List before
+#        run: ls
+#      - name: Go to Docker builds folder
+#        run: cd build_scripts_Docker
+#      - name: List after
+#        run: ls
       - name: Build the containers
-        run: bash build_dockers.sh
+        run: bash build_scripts_Docker/build_dockers.sh
       - name: Publish the containers
-        run: bash push_dockers.sh ${{ secrets.GITHUB_TOKEN }}
+        run: bash build_scripts_Docker/push_dockers.sh ${{ secrets.GITHUB_TOKEN }}
 #      - name: Install requirements
 #        run: python3 -m pip install -r requirements.txt
 #      - name: Go into builds folder
