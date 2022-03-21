@@ -1634,7 +1634,13 @@ def layer_4_ping(s: socket, ip: str, port: int, count: int = 5, timeout: int = 2
     return Host(ip, count, round_trip_times)
 
 
-def health_check(ip: Union, port: int, method: str = None, url: str = None, proxies: Set = None) -> (Host, Response):
+def health_check(ip: Union, port: int,
+                 method: str = None,
+                 url: str = None,
+                 proxies: Set = None,
+                 layer_4_retries: int = 5,
+                 layer_4_timeout: float = 2,
+                 layer_7_timeout: float = 10) -> (Host, Response):
     """
     Checks the health of the target on Layer 4 and Layer 7
     (depending on the selected protocol and attack method).
@@ -1642,9 +1648,12 @@ def health_check(ip: Union, port: int, method: str = None, url: str = None, prox
     Args:
         ip: IP of the target.
         port: Port of the target
-        method: (optional) MHDDoS attack method.
-        url: (optional) URL of the target.
-        proxies: (optional) List of the proxies to use where possible for connectivity check.
+        method: MHDDoS attack method.
+        url: URL of the target.
+        proxies: List of the proxies to use where possible for connectivity check.
+        layer_4_retries: Number of retries when checking target connectivity via Layer 4.
+        layer_4_timeout: Timeout when checking target connectivity via Layer 4.
+        layer_7_timeout: Timeout when checking target connectivity via Layer 7.
 
     Returns:
         Host status for Layer 4 and HTTP Response for Layer 7.
@@ -1661,20 +1670,40 @@ def health_check(ip: Union, port: int, method: str = None, url: str = None, prox
     LAYER_4_RETRIES = 5
     LAYER_7_TIMEOUT = 10
 
-    print("Checking Layer 4...")
     # handle Layer 4
+    print("Checking Layer 4...")
     layer_4_result = None
-    if method in {"MINECRAFT", "MCBOT", "TCP"} and proxies is not None:
+    if (method in {"MINECRAFT", "MCBOT", "TCP"} or method in Methods.LAYER7_METHODS) \
+            and proxies is not None and len(proxies) > 0:
+        print("with proxies")
         # these Layer 4 methods can use proxies, so check for every proxy using proxied TCP socket
-        # TODO: threaded requests, one per each proxy
-        pass
+        results = []
+        proxied_sockets = [proxy.open_socket() for proxy in proxies]
+
+        with ThreadPoolExecutor() as executor:
+            futures = []
+            for s in proxied_sockets:
+                futures.append(executor.submit(layer_4_ping, s, ip, port, LAYER_4_RETRIES, LAYER_4_TIMEOUT))
+            for future in as_completed(futures):
+                results.append(future.result())
+
+        for s in proxied_sockets:
+            s.close()
+
+        alive_count = 0
+        for r in results:
+            if r.is_alive:
+                alive_count += 1
+            print(f"result {r.is_alive} {r.avg_rtt:.0f} ms")
+        print(f"Target is reachable through {alive_count}/{len(proxies)} proxies.")
+
     else:
         # check using TCP socket without proxy
         with socket(AF_INET, SOCK_STREAM, IPPROTO_TCP) as s:
-            layer_4_result = layer_4_ping(s, ip, port, count=LAYER_4_RETRIES, timeout=LAYER_4_TIMEOUT)
+            layer_4_result = layer_4_ping(s, ip, port, LAYER_4_RETRIES, LAYER_4_TIMEOUT)
 
-    print("Checking Layer 7...")
     # handle Layer 7
+    print("Checking Layer 7...")
     layer_7_response = None
     url = ToolsConsole.ensure_http_present(url if url else ip)
     if proxies is not None:
