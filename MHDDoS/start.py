@@ -1814,15 +1814,6 @@ class TargetHealthCheckUtils:
         else:
             layer_7_response = TargetHealthCheckUtils.layer_7_ping(url, layer_7_timeout)
 
-        # result_string = "Healthcheck:\n"
-        # # if ping_result is not None:
-        # #     result_string += f"    Ping: {ping_result.avg_rtt:.0f} ms, {ping_result.is_alive}\n"
-        # if layer_4_result is not None:
-        #     result_string += f"    Layer 4: {layer_4_result.is_alive}, average {layer_4_result.avg_rtt:.0f} ms, packet loss {layer_4_result.packet_loss * 100:.0f}%\n"
-        # if layer_7_response is not None:
-        #     result_string += f"    Layer 7: code {layer_7_response.status_code}, reason: {layer_7_response.reason}\n"
-        # print(result_string)
-
         return layer_4_result, layer_7_response, layer_4_proxied_results, layer_7_proxied_responses
 
 
@@ -1832,7 +1823,7 @@ is_target_healthy: bool = False
 last_target_health_check_timestamp: float = 0
 """Time when the last target health check was started."""
 last_ping_result: Host = None
-"""Result of the ast healthcheck ping to the target."""
+"""Result of the last healthcheck ping to the target."""
 last_get_response: Response = None
 """Result of the last healthcheck GET request to the target."""
 
@@ -1891,7 +1882,7 @@ def log_attack_status():
     status_string += "\n"
 
     # craft a returner string so that we can overwrite previous multiline status log output
-    message_line_count = status_string.count("\n") + 1
+    message_line_count = status_string.count("\n") + 4
     GO_TO_PREVIOUS_LINE = f"\033[A"
     GO_TO_LINE_START = "\r"
     CLEAR_LINE = "\033[K"
@@ -1902,8 +1893,7 @@ def log_attack_status():
     if not status_logging_started:
         status_logging_started = True
     else:
-        print(returner)
-        pass
+        print(returner, end="")
     logger.debug(status_string)
 
 
@@ -1934,10 +1924,6 @@ def craft_connectivity_log_message():
     # craft reachability header
     status_string += "    Reachability:\n"
 
-    # for waiting periods animation
-    n_periods = (int(time()) % 3) + 1
-    periods = "".join(["." for _ in range(n_periods)])
-
     # craft Layer 4 check line
     status_string += "       Layer 4:"
     if last_l4_result:
@@ -1960,7 +1946,8 @@ def craft_connectivity_log_message():
         results = last_l4_proxied_results.copy()
         successful_pings = [r for r in results if r.is_alive]
         n_successful_pings = len(successful_pings)
-        n_total_pings = len(results)
+        n_proxies = len(results)
+        best_avg_ping = min([r.avg_rtt for r in results if r.is_alive])
         # craft average ping result for all proxies
         all_rtts = []
         for r in results:
@@ -1973,19 +1960,23 @@ def craft_connectivity_log_message():
 
         if r.is_alive:
             successful_pings_ratio = float(r.packets_sent) / r.packets_received
-            if successful_pings_ratio > 0.5:
+            if successful_pings_ratio == 1:
                 status_string += ansi_wrap(f" REACHABLE", color="green")
-                status_string += f" through proxies (best ping {r.avg_rtt:.0f} ms, no packets lost)."
+                status_string += f" through "
+                status_string += ansi_wrap(f"all {n_proxies}", color="green")
+                status_string += f" proxies (best average ping {best_avg_ping:.0f} ms, no packets lost)."
             else:
                 status_string += ansi_wrap(f" PARTIALLY REACHABLE", color="yellow")
-                status_string += f" through proxies (best ping {r.avg_rtt:.0f} ms, {r.packet_loss * 100:.0f}% packet loss)."
+                status_string += f" through "
+                status_string += ansi_wrap(f"{n_successful_pings}/{n_proxies}", color="yellow")
+                status_string += f" proxies (best ping {best_avg_ping:.0f} ms, total packet loss {r.packet_loss * 100:.0f}%)."
                 status_string += " Keep pushing."
         else:
             status_string += ansi_wrap(f" UNREACHABLE", color="red")
             status_string += f" through proxies ({r.packet_loss * 100:.0f}% packet loss)."
-            status_string += ansi_wrap(f" It may be down. We are shooting blanks right now.", color="red")
+            status_string += ansi_wrap(f" Target may be down.", color="red")
     else:
-        status_string += f"Checking if the target is reachable{periods}"
+        status_string += f" Checking if the target is reachable{CyclicPeriods()}"
     status_string += "\n"
 
     # # craft health check line
@@ -2010,7 +2001,7 @@ def craft_connectivity_log_message():
     #             status_string += f", reason: {lr.reason}"
     #         status_string += ")."
     # else:
-    #     status_string += f"Checking target health{periods}"
+    #     status_string += f" Checking target health{periods}"
 
     return status_string
 
