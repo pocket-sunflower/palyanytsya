@@ -1838,10 +1838,7 @@ def target_health_check_loop(interval: float, ip: str, port: int, method: str, u
     global last_l4_result, last_l7_response, last_l4_proxied_results, last_l7_proxied_responses, last_target_health_check_timestamp
 
     while True:
-        while time() - last_target_health_check_timestamp < interval:
-            sleep(1)
-
-        last_target_health_check_timestamp = time()
+        start_timestamp = perf_counter()
 
         last_l4_result, \
         last_l7_response, \
@@ -1867,6 +1864,11 @@ def target_health_check_loop(interval: float, ip: str, port: int, method: str, u
         #     last_health_check_response = get(address, timeout=20)
         #     # print(f"status_code: {last_health_check_response.status_code}\n"
         #     #       f"status: {last_health_check_response.status_code <= 500}")
+
+        last_target_health_check_timestamp = time()
+
+        while perf_counter() - start_timestamp < interval:
+            sleep(1)
 
 
 status_logging_started = False
@@ -1922,7 +1924,11 @@ def craft_connectivity_log_message():
     time_since_last_health_check = time() - last_target_health_check_timestamp
 
     # craft reachability header
-    status_string += "    Reachability:\n"
+    if last_target_health_check_timestamp > 0:
+        time_since_last_update = time() - last_target_health_check_timestamp
+        status_string += f"    Reachability ({time_since_last_update:.0f} {'second' if int(time_since_last_update) == 1 else 'seconds'} ago):\n"
+    else:
+        status_string += "    Reachability:\n"
 
     # craft Layer 4 check line
     status_string += "       Layer 4:"
@@ -1960,16 +1966,16 @@ def craft_connectivity_log_message():
 
         if r.is_alive:
             successful_pings_ratio = float(r.packets_sent) / r.packets_received
-            if successful_pings_ratio == 1:
+            if successful_pings_ratio >= 1:
                 status_string += ansi_wrap(f" REACHABLE", color="green")
                 status_string += f" through "
                 status_string += ansi_wrap(f"all {n_proxies}", color="green")
-                status_string += f" proxies (best average ping {best_avg_ping:.0f} ms, no packets lost)."
+                status_string += f" proxies (best average ping {best_avg_ping:.0f} ms, zero packet loss)."
             else:
                 status_string += ansi_wrap(f" PARTIALLY REACHABLE", color="yellow")
                 status_string += f" through "
                 status_string += ansi_wrap(f"{n_successful_pings}/{n_proxies}", color="yellow")
-                status_string += f" proxies (best ping {best_avg_ping:.0f} ms, total packet loss {r.packet_loss * 100:.0f}%)."
+                status_string += f" proxies (best ping {best_avg_ping:.0f} ms, {r.packet_loss * 100:.0f}% packet loss)."
                 status_string += " Keep pushing."
         else:
             status_string += ansi_wrap(f" UNREACHABLE", color="red")
@@ -1979,7 +1985,7 @@ def craft_connectivity_log_message():
         status_string += f" Checking if the target is reachable{CyclicPeriods()}"
     status_string += "\n"
 
-    # # craft health check line
+    # # craft Layer 7 check line
     # status_string += "       "
     # if not last_ping_result:
     #     status_string += ""
