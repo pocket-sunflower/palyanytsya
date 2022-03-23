@@ -1837,15 +1837,8 @@ class TargetHealthCheckUtils:
         return layer_4_result, layer_7_response, layer_4_proxied_results, layer_7_proxied_responses
 
 
-is_target_reachable: bool = False
-is_target_healthy: bool = False
-
 last_target_health_check_timestamp: float = 0
 """Time when the last target health check was started."""
-last_ping_result: Host = None
-"""Result of the last healthcheck ping to the target."""
-last_get_response: Response = None
-"""Result of the last healthcheck GET request to the target."""
 
 HEALTH_CHECK_INTERVAL = 10
 is_first_health_check_done: bool = False
@@ -1880,7 +1873,7 @@ def target_health_check_loop(interval: float,
         is_first_health_check_done = True
 
         while perf_counter() - start_timestamp < interval:
-            sleep(1)
+            sleep(0.1)
 
 
 status_logging_started = False
@@ -1931,7 +1924,7 @@ def craft_performance_log_message():
 
 
 def craft_outreach_log_message():
-    global last_ping_result, last_get_response, last_target_health_check_timestamp
+    global last_target_health_check_timestamp
 
     status_string = ""
 
