@@ -1435,7 +1435,6 @@ def validateProxyList(proxies: Set[Proxy],
                       port: int,
                       mhddos_attack_method: str,
                       target_url: str = None) -> Set[Proxy]:
-    proxies = None
     if proxies is None or len(proxies) == 0:
         return set()
 
