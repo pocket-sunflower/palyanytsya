@@ -1517,8 +1517,11 @@ def validateProxyList(proxies: Set[Proxy],
     n_validated = int(n_validated)
     if n_validated > 0:
         message = f"    Checked {n_proxies} proxies in {duration:.0f} sec. "
-        message += ansi_wrap(f"{n_validated} {'proxies are' if n_validated > 1 else 'proxy is'} suitable for the attack.", color="green")
+        print(message, end="")
+        sleep(2)
+        message = ansi_wrap(f"{n_validated} {'proxies are' if n_validated > 1 else 'proxy is'} suitable for the attack.", color="green")
         print(message)
+        sleep(2)
     else:
         exit("The target is not reachable through any of the provided proxies. The target may be down.")
 
@@ -1727,20 +1730,24 @@ class TargetHealthCheckUtils:
                 # print(f"proxy {proxy.host}:{proxy.port} - {e}")
                 pass
 
-        return Host(proxy.host, retries, round_trip_times)
+        return Host(ip, retries, round_trip_times)
 
     @staticmethod
     def layer_7_ping(url: str, timeout: float = 10, proxy: Proxy = None) -> Union[Response, None]:
         # TODO: Add headers to make it look like a browser request
         try:
-            proxies = None
+            print(f"ponging {url}")
             if proxy:
+                print("Using proxies")
                 proxies = {
                     "http": proxy.__str__(),
                     "https": proxy.__str__()
                 }
-            return get(url, timeout=timeout, proxies=proxies)
-        except RequestException:
+                return get(url, timeout=timeout, proxies=proxies)
+            else:
+                return get(url, timeout=timeout)
+        except RequestException as e:
+            print(e)
             return None  # indeterminate
 
     @staticmethod
@@ -1751,7 +1758,7 @@ class TargetHealthCheckUtils:
                      layer_4_retries: int = 5,
                      layer_4_timeout: float = 2,
                      layer_4_interval: float = 0.2,
-                     layer_7_timeout: float = 10) -> (Host, Response, List[Host], List[Response]):
+                     layer_7_timeout: float = 10) -> (Host, Union[Response, None], List[Host], List[Union[Response, None]]):
         """
         Checks the health of the target on Layer 4 and Layer 7
         (depending on the selected protocol and attack method).
@@ -1771,18 +1778,20 @@ class TargetHealthCheckUtils:
             A tuple containing
               (1) Host status for Layer 4.
               (2) HTTP response for Layer 7.
-              (3) Host statuses for Layer 4 in a list corresponding to the provided list of proxies.
-              (4) HTTP responses for Layer 7 in a list corresponding to the provided list of proxies.
+              (3) Proxied host statuses for Layer 4 in a list corresponding to the provided list of proxies.
+              (4) Proxied HTTP responses for Layer 7 in a list corresponding to the provided list of proxies.
 
         Notes:
             Layer 7 results will be None if it is not applicable to the selected attack method, or if the target port does not support HTTP protocol.
         """
 
+        print(f"Health check for {url} ({ip}:{port}) with {method}")
+
         # handle Layer 4
         layer_4_result = None
         layer_4_proxied_results = None
         if (method in {"MINECRAFT", "MCBOT", "TCP"} or method in Methods.LAYER7_METHODS) \
-                and proxies and len(proxies) > 0:
+                and proxies is not None and len(proxies) > 0:
             # these Layer 4 methods can use proxies, so check for every proxy using proxied TCP socket
             with ThreadPoolExecutor() as executor:
                 # we use executor.map to ensure that the order of the ping results corresponds to the passed list of proxies
@@ -1801,8 +1810,8 @@ class TargetHealthCheckUtils:
         # handle Layer 7
         layer_7_response = None
         layer_7_proxied_responses = None
-        url = ToolsConsole.ensure_http_present(url if url else ip)
-        if proxies is not None:
+        url = ToolsConsole.ensure_http_present(url if url is not None else ip)
+        if proxies is not None and len(proxies) > 0:
             # proxies are provided, so check for every proxy
             with ThreadPoolExecutor() as executor:
                 # we use executor.map to ensure that the order of the responses corresponds to the passed list of proxies
@@ -1827,15 +1836,22 @@ last_ping_result: Host = None
 last_get_response: Response = None
 """Result of the last healthcheck GET request to the target."""
 
-HEALTH_CHECK_INTERVAL = 60
+HEALTH_CHECK_INTERVAL = 0
+is_first_health_check_done: bool = False
 last_l4_result: Host = None
-last_l7_response: Response = None
+last_l7_response: Union[Response, None] = None
 last_l4_proxied_results: List[Host] = None
-last_l7_proxied_responses: List[Response] = None
+last_l7_proxied_responses: List[Union[Response, None]] = None
 
 
-def target_health_check_loop(interval: float, ip: str, port: int, method: str, url: Union[str, None], proxies: Union[set, None]):
-    global last_l4_result, last_l7_response, last_l4_proxied_results, last_l7_proxied_responses, last_target_health_check_timestamp
+def target_health_check_loop(interval: float,
+                             ip: str,
+                             port: int,
+                             method: str,
+                             url: Union[str, None],
+                             proxies: Union[set, None]):
+    global is_first_health_check_done, last_l4_result, last_l7_response, \
+        last_l4_proxied_results, last_l7_proxied_responses, last_target_health_check_timestamp
 
     while True:
         start_timestamp = perf_counter()
@@ -1849,23 +1865,8 @@ def target_health_check_loop(interval: float, ip: str, port: int, method: str, u
                                                                         layer_4_interval=0.2,
                                                                         layer_7_timeout=10)
 
-        # is_open = isOpen(ip, 443, 1)
-        # print(f"AAAAAAA {is_open}")
-        #
-        # # ping to check reachability
-        # last_ping_result = ping(ip, count=5, interval=0.2)
-        # # print(f"Address: {last_ping_result.address}\n"
-        # #       f"Ping: {last_ping_result.avg_rtt:.0f} ms\n"
-        # #       f"Accepted Packets: {last_ping_result.packets_received}/{last_ping_result.packets_sent}\n"
-        # #       f"Status: {last_ping_result.is_alive}\n")
-        #
-        # # if reachable, send request and analyze response to get health status
-        # if last_ping_result.is_alive:
-        #     last_health_check_response = get(address, timeout=20)
-        #     # print(f"status_code: {last_health_check_response.status_code}\n"
-        #     #       f"status: {last_health_check_response.status_code <= 500}")
-
         last_target_health_check_timestamp = time()
+        is_first_health_check_done = True
 
         while perf_counter() - start_timestamp < interval:
             sleep(1)
@@ -1876,15 +1877,14 @@ status_logging_started = False
 
 def log_attack_status():
     global bytes_sent, REQUESTS_SENT, TOTAL_BYTES_SENT, TOTAL_REQUESTS_SENT, status_logging_started
-
+    bloops = perf_counter()
     # craft status message
     status_string = ""
     status_string += craft_performance_log_message()
     status_string += craft_connectivity_log_message()
-    status_string += "\n"
 
     # craft a returner string so that we can overwrite previous multiline status log output
-    message_line_count = status_string.count("\n") + 4
+    message_line_count = status_string.count("\n")
     GO_TO_PREVIOUS_LINE = f"\033[A"
     GO_TO_LINE_START = "\r"
     CLEAR_LINE = "\033[K"
@@ -1895,7 +1895,10 @@ def log_attack_status():
     if not status_logging_started:
         status_logging_started = True
     else:
-        print(returner, end="")
+        # print(returner, end="")
+        pass
+    bloops = perf_counter() - bloops
+    status_string += ansi_wrap(f"\n ------------------------> {bloops:.10f} s\n", color="red")
     logger.debug(status_string)
 
 
@@ -1921,35 +1924,60 @@ def craft_connectivity_log_message():
     global last_ping_result, last_get_response, last_target_health_check_timestamp
 
     status_string = ""
-    time_since_last_health_check = time() - last_target_health_check_timestamp
 
     # craft reachability header
     if last_target_health_check_timestamp > 0:
         time_since_last_update = time() - last_target_health_check_timestamp
-        status_string += f"    Reachability ({time_since_last_update:.0f} {'second' if int(time_since_last_update) == 1 else 'seconds'} ago):\n"
+        status_string += f"    Reachability ({int(time_since_last_update):.0f} {'second' if int(time_since_last_update) == 1 else 'seconds'} ago):\n"
     else:
-        status_string += "    Reachability:\n"
+        status_string += f"    Reachability:\n"
 
     # craft Layer 4 check line
-    status_string += "       Layer 4:"
-    if last_l4_result:
-        status_string += " Target is"
-        r = last_l4_result
+    status_string += "       Layer 4: "
+    if is_first_health_check_done:
+        status_string += craft_layer_4_connectivity_string(last_l4_result, last_l4_proxied_results)
+    else:
+        status_string += f"Checking if the target is reachable{CyclicPeriods()}"
+
+    status_string += "\n"
+
+    # craft Layer 7 check line
+    status_string += "       Layer 7: "
+    if is_first_health_check_done:
+        status_string += craft_layer_7_connectivity_string(last_l7_response, last_l7_proxied_responses)
+    else:
+        status_string += f"Checking target health{CyclicPeriods()}"
+
+    status_string += "\n"
+
+    return status_string
+
+
+def craft_layer_4_connectivity_string(l4_result: Host, l4_proxied_results: List[Host]) -> str:
+    message = "Target is "
+
+    if l4_result is not None:
+        r = l4_result
         if r.is_alive:
             successful_pings_ratio = float(r.packets_sent) / r.packets_received
             if successful_pings_ratio > 0.5:
-                status_string += ansi_wrap(f" REACHABLE", color="green")
-                status_string += f" from our IP (ping {r.avg_rtt:.0f} ms, no packets lost)."
+                message += ansi_wrap(f"REACHABLE", color="green")
+                message += f" from our IP (ping {r.avg_rtt:.0f} ms, no packets lost)."
             else:
-                status_string += ansi_wrap(f" PARTIALLY REACHABLE", color="yellow")
-                status_string += f" from our IP (ping {r.avg_rtt:.0f} ms, {r.packet_loss * 100:.0f}% packet loss)."
+                message += ansi_wrap(f"PARTIALLY REACHABLE", color="yellow")
+                message += f" from our IP (ping {r.avg_rtt:.0f} ms, {r.packet_loss * 100:.0f}% packet loss)."
         else:
-            status_string += ansi_wrap(f" UNREACHABLE", color="red")
-            status_string += f" from our IP ({r.packet_loss * 100:.0f}% packet loss)."
-            status_string += ansi_wrap(f" It may be down. We are shooting blanks right now.", color="red")
-    elif last_l4_proxied_results and len(last_l4_proxied_results) > 0:
+            message += ansi_wrap(f"UNREACHABLE", color="red")
+            message += f" from our IP ({r.packet_loss * 100:.0f}% packet loss)."
+            message += ansi_wrap(f" It may be down. We are shooting blanks right now.", color="red")
+
+        # debug
+        message += "\n"
+        message += f" | {last_l4_result.is_alive}, {last_l4_result.avg_rtt:.0f} ms"
+
+    elif l4_proxied_results is not None and len(l4_proxied_results) > 0:
         # collect stats about the results
-        results = last_l4_proxied_results.copy()
+        results = l4_proxied_results.copy()
         successful_pings = [r for r in results if r.is_alive]
         n_successful_pings = len(successful_pings)
         n_proxies = len(results)
@@ -1967,49 +1995,115 @@ def craft_connectivity_log_message():
         if r.is_alive:
             successful_pings_ratio = float(r.packets_sent) / r.packets_received
             if successful_pings_ratio >= 1:
-                status_string += ansi_wrap(f" REACHABLE", color="green")
-                status_string += f" through "
-                status_string += ansi_wrap(f"all {n_proxies}", color="green")
-                status_string += f" proxies (best average ping {best_avg_ping:.0f} ms, zero packet loss)."
+                message += ansi_wrap(f"REACHABLE", color="green")
+                message += f" through "
+                message += ansi_wrap(f"all {n_proxies}", color="green")
+                message += f" proxies (best average ping {best_avg_ping:.0f} ms, zero packet loss)."
             else:
-                status_string += ansi_wrap(f" PARTIALLY REACHABLE", color="yellow")
-                status_string += f" through "
-                status_string += ansi_wrap(f"{n_successful_pings}/{n_proxies}", color="yellow")
-                status_string += f" proxies (best ping {best_avg_ping:.0f} ms, {r.packet_loss * 100:.0f}% packet loss)."
-                status_string += " Keep pushing."
+                message += ansi_wrap(f"PARTIALLY REACHABLE", color="yellow")
+                message += f" through "
+                message += ansi_wrap(f"{n_successful_pings}/{n_proxies}", color="yellow")
+                message += f" proxies (best ping {best_avg_ping:.0f} ms, {r.packet_loss * 100:.0f}% packet loss)."
+                message += " Keep pushing."
         else:
-            status_string += ansi_wrap(f" UNREACHABLE", color="red")
-            status_string += f" through proxies ({r.packet_loss * 100:.0f}% packet loss)."
-            status_string += ansi_wrap(f" Target may be down.", color="red")
+            message += ansi_wrap(f"UNREACHABLE", color="red")
+            message += f" through proxies ({r.packet_loss * 100:.0f}% packet loss)."
+            message += ansi_wrap(f" Target may be down.", color="red")
+
+        # debug
+        message += "\n"
+        message += " |"
+        for r in l4_proxied_results:
+            message += f" {r.is_alive}, {r.avg_rtt:.0f} ms |"
+
     else:
-        status_string += f" Checking if the target is reachable{CyclicPeriods()}"
-    status_string += "\n"
+        message += f"Checking if the target is reachable{CyclicPeriods()}"
 
-    # # craft Layer 7 check line
-    # status_string += "       "
-    # if not last_ping_result:
-    #     status_string += ""
-    # elif not last_ping_result.is_alive:
-    #     status_string += "Health status cannot be checked."
-    # elif last_get_response:
-    #     status_string += "Target"
-    #     lr = last_get_response
-    #     if lr.status_code <= 500:
-    #         status_string += ansi_wrap(f" is operating normally", color="green")
-    #         status_string += f" (last HTTP response code = {lr.status_code}"
-    #         if lr.reason:
-    #             status_string += f", reason: {lr.reason}"
-    #         status_string += ")."
-    #     else:
-    #         status_string += ansi_wrap(f" may be down", color="red")
-    #         status_string += f" (last HTTP response code = {lr.status_code}"
-    #         if lr.reason:
-    #             status_string += f", reason: {lr.reason}"
-    #         status_string += ")."
-    # else:
-    #     status_string += f" Checking target health{periods}"
+    return message
 
-    return status_string
+
+def craft_layer_7_connectivity_string(l7_response: Response, l7_proxied_responses: List[Union[Response, None]]) -> str:
+    message = "Target "
+
+    # some helper functions
+    def is_healthy(response: Response) -> bool:
+        if response is not None:
+            return response.status_code < 500
+        return False
+
+    def is_down(response: Response) -> bool:
+        if response is not None:
+            return response.status_code >= 500
+        return False
+
+    def is_indeterminate(response: Response) -> bool:
+        return response is None
+
+    if l7_response is not None:
+        if is_healthy(l7_response):
+            message += "is "
+            message += ansi_wrap(f"HEALTHY", color="green")
+            message += f" (response code {l7_response.status_code} = {l7_response.reason})."
+        elif is_down(l7_response):
+            message += "may be "
+            message += ansi_wrap(f"DOWN", color="red")
+            message += f" (response code {l7_response.status_code} = {l7_response.reason})."
+        else:
+            message += "state cannot be determined."
+
+        # debug
+        message += "\n"
+        message += f" | {l7_response.status_code}, {l7_response.reason}"
+
+    elif l7_proxied_responses is not None and len(l7_proxied_responses) > 0:
+        n_proxies = len(l7_proxied_responses)
+        n_healthy = len([r for r in l7_proxied_responses if is_healthy(r)])
+        n_down = len([r for r in l7_proxied_responses if is_down(r)])
+        n_indeterminate = len([r for r in l7_proxied_responses if is_indeterminate(r)])
+
+        if n_down == 0 and n_indeterminate == 0:
+            message += "is "
+            message += ansi_wrap(f"HEALTHY", color="green")
+            if n_proxies > 1:
+                message += f" (got healthy responses through all {n_proxies} proxies)."
+            else:
+                message += f" (got healthy response through the proxy)."
+        elif n_healthy > 0 and (n_down > 0 or n_indeterminate > 0):
+            message += "is "
+            message += ansi_wrap(f"STRUGGLING", color="yellow")
+            message += f" (got healthy responses only through {n_healthy}/{n_proxies} proxies)."
+        elif n_healthy == 0:
+            message += "may be "
+            message += ansi_wrap(f"DOWN", color="red")
+            if n_proxies > 1:
+                message += f" (got bad or no responses through all of the {n_proxies} proxies)."
+            else:
+                if n_down == 1:
+                    message += f" (got bad response through the proxy)."
+                else:
+                    message += f" (got no response through the proxy)."
+        else:
+            if n_proxies > 1:
+                message += " is in limbo. State could not be determined through any of the proxies."
+            else:
+                message += " is in limbo. State could not be determined through the proxy."
+
+        # debug
+        message += "\n"
+        message += f" | {n_healthy} healthy, {n_down} down, {n_indeterminate} indeterminate | "
+        message += "\n"
+        message += " |"
+        for r in l7_proxied_responses:
+            if r:
+                message += f" {r.status_code} |"
+            else:
+                message += f" None |"
+    else:
+        message += "No response. The target may be "
+        message += ansi_wrap("down", color="red")
+        message += ", or it does not support HTTP protocol."
+
+    return message
 
 
 if __name__ == '__main__':
