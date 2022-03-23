@@ -1426,7 +1426,7 @@ class CyclicPeriods:
         self.max_periods = max_periods
 
     def __str__(self):
-        n_periods = int((time() * 1.0 / self.update_interval % self.max_periods)) + 1
+        n_periods = self.max_periods - int((time() * 1.0 / self.update_interval % self.max_periods))
         periods = "".join(["." for _ in range(n_periods)])
         return periods
 
@@ -1440,12 +1440,12 @@ def validateProxyList(proxies: Set[Proxy],
         return set()
 
     n_proxies = len(proxies)
-    n_cycles = 1
+    total_check_cycles = 3
     l4_retries = 1
     l4_timeout = 2
     l4_interval = 0.2
     l7_timeout = 0.01  # no need to check Layer 7 before the attack started
-    expected_max_duration_min = math.ceil(float(n_cycles * (l4_retries * (l4_timeout + l4_interval) + l7_timeout)) / 60)
+    expected_max_duration_min = math.ceil(float(total_check_cycles * (l4_retries * (l4_timeout + l4_interval) + l7_timeout)) / 60)
 
     message = f"Checking if the target is reachable through the provided proxies...\n"
     heart = ansi_wrap("♥", color="red")
@@ -1458,7 +1458,7 @@ def validateProxyList(proxies: Set[Proxy],
     n_cycle = Counter(1)
 
     def proxy_check_thread():
-        for i in range(n_cycles):
+        for i in range(total_check_cycles):
             n_cycle.set(i + 1)
 
             # check if the provided proxies can reach our target
@@ -1480,9 +1480,9 @@ def validateProxyList(proxies: Set[Proxy],
                 if proxied_result.is_alive:
                     validated_proxies.add(proxy)
 
-                proxied_response = l7_proxied_responses[j]
-                if proxied_response:
-                    validated_proxies.add(proxy)
+                # proxied_response = l7_proxied_responses[j]
+                # if proxied_response:
+                #     validated_proxies.add(proxy)
 
             # update stats
             n_validated.set(len(validated_proxies))
@@ -1499,10 +1499,10 @@ def validateProxyList(proxies: Set[Proxy],
     first_run = True
     while thread.is_alive():
         if int(n_validated) < 1:
-            print(f"    Proxy check cycle {int(n_cycle)}/{n_cycles}{cyclic_periods}")
+            print(f"    Proxy check cycle {int(n_cycle)}/{total_check_cycles}{cyclic_periods}")
         else:
             p_word = "proxies" if int(n_validated) > 1 else "proxy"
-            message = f"    Proxy check cycle {int(n_cycle)}/{n_cycles} ("
+            message = f"    Proxy check cycle {int(n_cycle)}/{total_check_cycles} ("
             message += ansi_wrap(f"confirmed {int(n_validated)} {p_word}", color="green")
             message += f"){cyclic_periods}"
             print(message)
@@ -1733,7 +1733,7 @@ class TargetHealthCheckUtils:
         return Host(ip, retries, round_trip_times)
 
     @staticmethod
-    def layer_7_ping(url: str, timeout: float = 10, proxy: Proxy = None) -> Union[Response, None]:
+    def layer_7_ping(url: str, timeout: float = 10, proxy: Proxy = None) -> Union[Response, RequestException]:
         # craft fake headers to make it look like a browser request
         url_object = URL(url)
         mhddos_layer_7 = HttpFlood(url_object, url_object.host)
@@ -1746,10 +1746,8 @@ class TargetHealthCheckUtils:
 
         # send a GET request
         try:
-            print(f"ponging {url}")
             proxies = None
             if proxy:
-                print("Using proxies")
                 proxies = {
                     "http": proxy.__str__(),
                     "https": proxy.__str__()
@@ -1760,9 +1758,8 @@ class TargetHealthCheckUtils:
                        proxies=proxies,
                        headers=fake_headers_dict)
 
-        except RequestException as e:
-            print(e)
-            return None  # indeterminate
+        except RequestException as exception:
+            return exception  # indeterminate
 
     @staticmethod
     def health_check(ip: Union, port: int,
@@ -1796,10 +1793,10 @@ class TargetHealthCheckUtils:
               (4) Proxied HTTP responses for Layer 7 in a list corresponding to the provided list of proxies.
 
         Notes:
-            Layer 7 results will be None if it is not applicable to the selected attack method, or if the target port does not support HTTP protocol.
+            Layer 7 results will contain RequestException if the request fails.
         """
 
-        print(f"Health check for {url} ({ip}:{port}) with {method}")
+        # print(f"Health check for {url} ({ip}:{port}) with {method}")
 
         # handle Layer 4
         layer_4_result = None
@@ -1850,7 +1847,7 @@ last_ping_result: Host = None
 last_get_response: Response = None
 """Result of the last healthcheck GET request to the target."""
 
-HEALTH_CHECK_INTERVAL = 0
+HEALTH_CHECK_INTERVAL = 10
 is_first_health_check_done: bool = False
 last_l4_result: Host = None
 last_l7_response: Union[Response, None] = None
@@ -1891,11 +1888,11 @@ status_logging_started = False
 
 def log_attack_status():
     global bytes_sent, REQUESTS_SENT, TOTAL_BYTES_SENT, TOTAL_REQUESTS_SENT, status_logging_started
-    bloops = perf_counter()
+
     # craft status message
     status_string = ""
     status_string += craft_performance_log_message()
-    status_string += craft_connectivity_log_message()
+    status_string += craft_outreach_log_message()
 
     # craft a returner string so that we can overwrite previous multiline status log output
     message_line_count = status_string.count("\n")
@@ -1909,10 +1906,8 @@ def log_attack_status():
     if not status_logging_started:
         status_logging_started = True
     else:
-        # print(returner, end="")
-        pass
-    bloops = perf_counter() - bloops
-    status_string += ansi_wrap(f"\n ------------------------> {bloops:.10f} s\n", color="red")
+        print(returner, end="")
+        # pass
     logger.debug(status_string)
 
 
@@ -1924,50 +1919,73 @@ def craft_performance_log_message():
     tb = Tools.humanbytes(int(TOTAL_BYTES_SENT))
     status_string = f"\n" \
                     f"Status:\n" \
-                    f"    Outgoing data (per second):\n" \
-                    f"       Packets/s: {pps}\n" \
-                    f"       Bytes/s:   {bps}\n" \
-                    f"    Outgoing data (total since the attack started):\n" \
-                    f"       Packets sent: {tp}\n" \
-                    f"       Bytes sent:   {tb}\n"
+                    f"    Outgoing data:\n" \
+                    f"       Per second:\n" \
+                    f"          Packets/s: {pps}\n" \
+                    f"          Bytes/s:   {bps}\n" \
+                    f"       Total since the attack started:\n" \
+                    f"          Packets sent: {tp}\n" \
+                    f"          Bytes sent:   {tb}\n"
 
     return status_string
 
 
-def craft_connectivity_log_message():
+def craft_outreach_log_message():
     global last_ping_result, last_get_response, last_target_health_check_timestamp
 
     status_string = ""
 
-    # craft reachability header
-    if last_target_health_check_timestamp > 0:
-        time_since_last_update = time() - last_target_health_check_timestamp
-        status_string += f"    Reachability ({int(time_since_last_update):.0f} {'second' if int(time_since_last_update) == 1 else 'seconds'} ago):\n"
-    else:
-        status_string += f"    Reachability:\n"
+    # craft time string
+    time_since_last_update = time() - last_target_health_check_timestamp
+    time_string = f"updated {int(time_since_last_update):.0f} {'second' if int(time_since_last_update) == 1 else 'seconds'} ago"
 
-    # craft Layer 4 check line
-    status_string += "       Layer 4: "
+    # craft outreach summary header
+    if last_target_health_check_timestamp > 0:
+        status_string += f"    Outreach ({time_string}):\n"
+    else:
+        status_string += f"    Outreach:\n"
+
+    # craft Layer 4 check summary line
+    status_string += "       Summary:\n"
+    status_string += "          Layer 4: "
     if is_first_health_check_done:
-        status_string += craft_layer_4_connectivity_string(last_l4_result, last_l4_proxied_results)
+        status_string += craft_layer_4_outreach_summary_string(last_l4_result, last_l4_proxied_results)
     else:
         status_string += f"Checking if the target is reachable{CyclicPeriods()}"
 
     status_string += "\n"
 
-    # craft Layer 7 check line
-    status_string += "       Layer 7: "
+    # craft Layer 7 check summary line
+    status_string += "          Layer 7: "
     if is_first_health_check_done:
-        status_string += craft_layer_7_connectivity_string(last_l7_response, last_l7_proxied_responses)
+        status_string += craft_layer_7_outreach_summary_string(last_l7_response, last_l7_proxied_responses)
     else:
         status_string += f"Checking target health{CyclicPeriods()}"
 
     status_string += "\n"
 
+    if is_first_health_check_done:
+        # craft detailed stats
+        status_string += f"       Details:\n"
+        is_using_proxies = (last_l4_proxied_results is not None) and len(last_l4_proxied_results) > 0
+        if is_using_proxies:
+            for i in range(len(last_l4_proxied_results)):
+                status_string += f"          "
+                status_string += f"Through proxy {(i+1):<2} - "
+                l4 = last_l4_proxied_results[i]
+                l7 = last_l7_proxied_responses[i]
+                status_string += craft_detailed_outreach_stats_string(l4, l7)
+                status_string += "\n"
+        else:
+            status_string += f"          "
+            status_string += f"Direct to target - "
+            status_string += craft_detailed_outreach_stats_string(last_l4_result, last_l7_response)
+            status_string += "\n"
+
     return status_string
 
 
-def craft_layer_4_connectivity_string(l4_result: Host, l4_proxied_results: List[Host]) -> str:
+def craft_layer_4_outreach_summary_string(l4_result: Host, l4_proxied_results: List[Host]) -> str:
     message = "Target is "
 
     if l4_result is not None:
@@ -1984,11 +2002,6 @@ def craft_layer_4_connectivity_string(l4_result: Host, l4_proxied_results: List[
             message += ansi_wrap(f"UNREACHABLE", color="red")
             message += f" from our IP ({r.packet_loss * 100:.0f}% packet loss)."
             message += ansi_wrap(f" It may be down. We are shooting blanks right now.", color="red")
-
-        # debug
-        message += "\n"
-        message += f" | {last_l4_result.is_alive}, {last_l4_result.avg_rtt:.0f} ms"
-
     elif l4_proxied_results is not None and len(l4_proxied_results) > 0:
         # collect stats about the results
         results = l4_proxied_results.copy()
@@ -1998,8 +2011,8 @@ def craft_layer_4_connectivity_string(l4_result: Host, l4_proxied_results: List[
         best_avg_ping = min([r.avg_rtt for r in results if r.is_alive])
         # craft average ping result for all proxies
         all_rtts = []
-        for r in results:
-            all_rtts.extend(r.rtts)
+        _ = [all_rtts.extend(r.rtts) for r in results]
+
         r = Host(
             address=results[0].address,
             packets_sent=sum([r.packets_sent for r in results]),
@@ -2007,7 +2020,7 @@ def craft_layer_4_connectivity_string(l4_result: Host, l4_proxied_results: List[
         )
 
         if r.is_alive:
-            successful_pings_ratio = float(r.packets_sent) / r.packets_received
+            successful_pings_ratio = float(r.packets_received) / r.packets_sent
             if successful_pings_ratio >= 1:
                 message += ansi_wrap(f"REACHABLE", color="green")
                 message += f" through "
@@ -2023,37 +2036,31 @@ def craft_layer_4_connectivity_string(l4_result: Host, l4_proxied_results: List[
             message += ansi_wrap(f"UNREACHABLE", color="red")
             message += f" through proxies ({r.packet_loss * 100:.0f}% packet loss)."
             message += ansi_wrap(f" Target may be down.", color="red")
-
-        # debug
-        message += "\n"
-        message += " |"
-        for r in l4_proxied_results:
-            message += f" {r.is_alive}, {r.avg_rtt:.0f} ms |"
-
     else:
         message += f"Checking if the target is reachable{CyclicPeriods()}"
 
     return message
 
 
-def craft_layer_7_connectivity_string(l7_response: Response, l7_proxied_responses: List[Union[Response, None]]) -> str:
+def craft_layer_7_outreach_summary_string(l7_response: Union[Response, RequestException],
+                                          l7_proxied_responses: List[Union[Response, RequestException]]) -> str:
     message = "Target "
 
     # some helper functions
-    def is_healthy(response: Response) -> bool:
-        if response is not None:
+    def is_healthy(response: Union[Response, RequestException]) -> bool:
+        if isinstance(response, Response):
             return response.status_code < 500
         return False
 
-    def is_down(response: Response) -> bool:
-        if response is not None:
+    def is_down(response: Union[Response, RequestException]) -> bool:
+        if isinstance(response, Response):
             return response.status_code >= 500
         return False
 
-    def is_indeterminate(response: Response) -> bool:
-        return response is None
+    def is_indeterminate(response: Union[Response, RequestException]) -> bool:
+        return response is RequestException
 
-    if l7_response is not None:
+    if isinstance(l7_response, Response):
         if is_healthy(l7_response):
             message += "is "
             message += ansi_wrap(f"HEALTHY", color="green")
@@ -2064,18 +2071,18 @@ def craft_layer_7_connectivity_string(l7_response: Response, l7_proxied_response
             message += f" (response code {l7_response.status_code} = {l7_response.reason})."
         else:
             message += "state cannot be determined."
-
-        # debug
-        message += "\n"
-        message += f" | {l7_response.status_code}, {l7_response.reason}"
-
+    elif isinstance(l7_response, RequestException):
+        exception: RequestException = l7_response
+        message += "may be "
+        message += ansi_wrap(f"DOWN", color="red")
+        message += f" ({type(exception).__name__} when making a request)."
     elif l7_proxied_responses is not None and len(l7_proxied_responses) > 0:
         n_proxies = len(l7_proxied_responses)
         n_healthy = len([r for r in l7_proxied_responses if is_healthy(r)])
         n_down = len([r for r in l7_proxied_responses if is_down(r)])
         n_indeterminate = len([r for r in l7_proxied_responses if is_indeterminate(r)])
 
-        if n_down == 0 and n_indeterminate == 0:
+        if n_healthy > 0 and n_down == 0 and n_indeterminate == 0:
             message += "is "
             message += ansi_wrap(f"HEALTHY", color="green")
             if n_proxies > 1:
@@ -2086,7 +2093,7 @@ def craft_layer_7_connectivity_string(l7_response: Response, l7_proxied_response
             message += "is "
             message += ansi_wrap(f"STRUGGLING", color="yellow")
             message += f" (got healthy responses only through {n_healthy}/{n_proxies} proxies)."
-        elif n_healthy == 0:
+        elif n_healthy == 0 and n_down > 0:
             message += "may be "
             message += ansi_wrap(f"DOWN", color="red")
             if n_proxies > 1:
@@ -2098,24 +2105,52 @@ def craft_layer_7_connectivity_string(l7_response: Response, l7_proxied_response
                     message += f" (got no response through the proxy)."
         else:
             if n_proxies > 1:
-                message += " is in limbo. State could not be determined through any of the proxies."
+                message += "is in limbo. State could not be determined through any of the proxies."
             else:
-                message += " is in limbo. State could not be determined through the proxy."
-
-        # debug
-        message += "\n"
-        message += f" | {n_healthy} healthy, {n_down} down, {n_indeterminate} indeterminate | "
-        message += "\n"
-        message += " |"
-        for r in l7_proxied_responses:
-            if r:
-                message += f" {r.status_code} |"
-            else:
-                message += f" None |"
+                message += "is in limbo. State could not be determined through the proxy."
     else:
-        message += "No response. The target may be "
+        message += "did not respond. It may be "
         message += ansi_wrap("down", color="red")
-        message += ", or it does not support HTTP protocol."
+        message += f", or it does not support HTTP protocol."
+
+    return message
+
+
+def craft_detailed_outreach_stats_string(l4: Host,
+                                         l7: Union[Response, RequestException]):
+    message = ""
+
+    # is alive
+    if l4.is_alive:
+        s = ansi_wrap("●", color="green")
+    else:
+        s = ansi_wrap("●", color="red")
+    message += f"{s:>1} "
+
+    # average ping
+    padding = 7
+    if l4.is_alive:
+        s = ansi_wrap(f"{l4.avg_rtt:.0f} ms".ljust(padding), color="green")
+    else:
+        s = ansi_wrap(f"{CyclicPeriods()}".ljust(padding), color="red")
+    message += f"{s} - "
+
+    # response / exception
+    padding = 20
+    if isinstance(l7, Response):
+        if l7.status_code < 400:
+            color = "green"
+        elif l7.status_code < 500:
+            color = "yellow"
+        else:
+            color = "red"
+        s = ansi_wrap(f"{l7.status_code} {l7.reason}".ljust(padding), color=color)
+    elif isinstance(l7, RequestException):
+        s = f"{type(l7).__name__}"
+        s = ansi_wrap(s.ljust(padding), color="red")
+    else:
+        s = ansi_wrap(f"{CyclicPeriods()}".ljust(padding), color="red")
+    message += f"{s}"
 
     return message
 
