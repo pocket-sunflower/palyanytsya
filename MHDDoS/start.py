@@ -1734,18 +1734,32 @@ class TargetHealthCheckUtils:
 
     @staticmethod
     def layer_7_ping(url: str, timeout: float = 10, proxy: Proxy = None) -> Union[Response, None]:
-        # TODO: Add headers to make it look like a browser request
+        # craft fake headers to make it look like a browser request
+        url_object = URL(url)
+        mhddos_layer_7 = HttpFlood(url_object, url_object.host)
+        fake_headers_string = mhddos_layer_7.randHeadercontent
+        fake_headers_dict = {}
+        for entry in fake_headers_string.strip("\n").split("\n"):
+            header_name = entry.split(": ")[0]
+            header_value = entry.replace(f"{header_name}: ", "").strip("\r")
+            fake_headers_dict[header_name] = header_value
+
+        # send a GET request
         try:
             print(f"ponging {url}")
+            proxies = None
             if proxy:
                 print("Using proxies")
                 proxies = {
                     "http": proxy.__str__(),
                     "https": proxy.__str__()
                 }
-                return get(url, timeout=timeout, proxies=proxies)
-            else:
-                return get(url, timeout=timeout)
+
+            return get(url,
+                       timeout=timeout,
+                       proxies=proxies,
+                       headers=fake_headers_dict)
+
         except RequestException as e:
             print(e)
             return None  # indeterminate
