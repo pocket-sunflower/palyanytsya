@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 import ctypes
 import itertools
-import logging
 import math
 import os
-import sys
 from _socket import SHUT_RDWR
-from concurrent.futures import ThreadPoolExecutor, as_completed, Future
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import suppress
 from itertools import cycle
 from json import load
@@ -20,7 +18,6 @@ from random import randint
 from socket import (AF_INET, IP_HDRINCL, IPPROTO_IP, IPPROTO_TCP, IPPROTO_UDP, SOCK_DGRAM,
                     SOCK_RAW, SOCK_STREAM, TCP_NODELAY, gethostbyname,
                     gethostname, socket)
-import socket as Socket
 from ssl import CERT_NONE, SSLContext, create_default_context
 from struct import pack as data_pack
 from subprocess import run
@@ -28,11 +25,11 @@ from sys import argv
 from sys import exit as _exit
 from threading import Event, Lock, Thread
 from time import sleep, time, perf_counter
-from typing import Any, List, Set, Tuple, Union, Dict
+from typing import Any, List, Set, Tuple, Union
 from urllib import parse
 from uuid import UUID, uuid4
 
-from PyRoxy import Proxy, ProxyChecker, ProxyType, ProxyUtiles
+from PyRoxy import Proxy, ProxyType, ProxyUtiles
 from PyRoxy import Tools as ProxyTools
 from certifi import where
 from cfscrape import create_scraper
@@ -43,6 +40,8 @@ from impacket.ImpactPacket import IP, TCP, UDP, Data
 from psutil import cpu_percent, net_io_counters, process_iter, virtual_memory
 from requests import Response, Session, exceptions, get, RequestException
 from yarl import URL
+
+from MHDDoS.utils.console_utils import clear_lines_from_console
 
 basicConfig(format='[%(asctime)s - %(levelname)s] %(message)s',
             datefmt="%H:%M:%S")
@@ -1436,7 +1435,8 @@ def validateProxyList(proxies: Set[Proxy],
                       port: int,
                       mhddos_attack_method: str,
                       target_url: str = None) -> Set[Proxy]:
-    if not proxies:
+    proxies = None
+    if proxies is None or len(proxies) == 0:
         return set()
 
     n_proxies = len(proxies)
@@ -1508,9 +1508,7 @@ def validateProxyList(proxies: Set[Proxy],
             print(message)
 
         sleep(cyclic_periods.update_interval)
-
-        returner = f"{GO_TO_PREVIOUS_LINE}{GO_TO_LINE_START}{CLEAR_LINE}"
-        print(returner, end="")
+        clear_lines_from_console(1)
 
 
     duration = perf_counter() - check_start_time
@@ -1883,25 +1881,18 @@ def log_attack_status():
     global bytes_sent, REQUESTS_SENT, TOTAL_BYTES_SENT, TOTAL_REQUESTS_SENT, status_logging_started
 
     # craft status message
-    status_string = ""
-    status_string += craft_performance_log_message()
-    status_string += craft_outreach_log_message()
-
-    # craft a returner string so that we can overwrite previous multiline status log output
-    message_line_count = status_string.count("\n")
-    GO_TO_PREVIOUS_LINE = f"\033[A"
-    GO_TO_LINE_START = "\r"
-    CLEAR_LINE = "\033[K"
-    returner = "".join([f"{GO_TO_PREVIOUS_LINE}{GO_TO_LINE_START}{CLEAR_LINE}" for _ in range(message_line_count)])
-    returner += GO_TO_PREVIOUS_LINE
+    message = "\n"
+    message += craft_performance_log_message()
+    message += craft_outreach_log_message()
 
     # log the message
     if not status_logging_started:
         status_logging_started = True
     else:
-        print(returner, end="")
+        message_line_count = message.count("\n") + 1
+        clear_lines_from_console(message_line_count)
         # pass
-    logger.debug(status_string)
+    print(message, end="")
 
 
 def craft_performance_log_message():
@@ -1910,8 +1901,7 @@ def craft_performance_log_message():
     bps = Tools.humanbytes(int(bytes_sent))
     tp = Tools.humanformat(int(TOTAL_REQUESTS_SENT))
     tb = Tools.humanbytes(int(TOTAL_BYTES_SENT))
-    status_string = f"\n" \
-                    f"Status:\n" \
+    status_string = f"Status:\n" \
                     f"    Outgoing data:\n" \
                     f"       Per second:\n" \
                     f"          Packets/s: {pps}\n" \
@@ -2129,7 +2119,7 @@ def craft_detailed_outreach_stats_string(l4: Host,
     message += f"{s} - "
 
     # response / exception
-    padding = 20
+    padding = 0
     if isinstance(l7, Response):
         if l7.status_code < 400:
             color = "green"
