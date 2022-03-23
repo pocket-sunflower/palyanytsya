@@ -261,7 +261,7 @@ def kara():
     print()
     print(f"Initiating attack with the following MHDDoS parameters:\n     {' '.join(argv[1:])}")
     print()
-    time.sleep(1)
+    time.sleep(2)
 
     start()
 
