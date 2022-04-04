@@ -34,7 +34,7 @@ class ProxyManager:
         with ThreadPoolExecutor(len(providrs)) as executor:
             future_to_download = {
                 executor.submit(
-                    download, provider,
+                    ProxyManager.download, provider,
                     ProxyType.stringToProxyType(str(provider["type"])))
                 for provider in providrs
             }

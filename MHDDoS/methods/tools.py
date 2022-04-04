@@ -12,6 +12,7 @@ from time import sleep
 from typing import Any
 
 import PyRoxy
+from PyRoxy import Tools as PyRoxyTools
 from dns import resolver
 from icmplib import ping
 from psutil import net_io_counters, virtual_memory, cpu_percent, process_iter
@@ -352,7 +353,7 @@ class Tools:
             __ip__ = PyRoxy.Tools.Patterns.IP.search(get('https://spaceiran.com/myip/', timeout=.1).text)
         with suppress(Exception):
             __ip__ = get('https://ip.42.pl/raw', timeout=.1).text
-        return getMyIPAddress()
+        return Tools.getMyIPAddress()
 
     @staticmethod
     def humanbytes(i: int, binary: bool = False, precision: int = 2):
