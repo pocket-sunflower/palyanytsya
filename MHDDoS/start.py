@@ -53,6 +53,38 @@ def exit(*message):
 #     pass
 
 
+def read_configuration_file_text(file_path_or_url: str) -> str | None:
+    """
+    Loads text content from the given file or URL.
+    If given URL, will read text from it and return it.
+    If given a relative path, will return the contents of the file at this path.
+        If the file doesn't exist relative to workdir, will look for this file in default MHDDoS/files folder.
+    If the file could not be located/read, will return None.
+
+    Args:
+        file_path_or_url: Absolute path, relative path or URL of the file.
+
+    Returns:
+        Text content of the file if it was located, None otherwise.
+    """
+    # if URL, load with a request
+    if validators.url(file_path_or_url):
+        response = requests.get(file_path_or_url, timeout=10)
+        return response.text
+
+    # if not URL, try to look locally
+    path = Path(file_path_or_url)
+    if path.is_file():
+        return path.read_text()
+    elif not path.is_absolute():
+        # if not found relative to the workdir, look relative to 'MHDDoS/files'
+        path = Path(__dir__ / "files/" / path)
+        if path.is_file():
+            return path.read_text()
+
+    return None
+
+
 def load_proxies(proxies_file_path: str, proxy_type: ProxyType = ProxyType.SOCKS5) -> List[Proxy]:
     if validators.url(proxies_file_path):
         # TODO: download file if it's a URL
