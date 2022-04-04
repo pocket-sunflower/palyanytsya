@@ -7,7 +7,7 @@ from MHDDoS.start import start
 from utils import print_vpn_warning, supports_complex_colors
 
 
-def print_flair():
+def get_flair_string():
     BLUE = (0, 91, 187) if supports_complex_colors() else "blue"
     YELLOW = (255, 213, 0) if supports_complex_colors() else "yellow"
     GREEN = (8, 255, 8) if supports_complex_colors() else "green"
@@ -26,8 +26,12 @@ def print_flair():
                    ansi_wrap("╚═╝░░░░░╚═╝░░╚═╝╚══════╝░░░╚═╝░░░╚═╝░░╚═╝╚═╝░░╚══╝░░░╚═╝░░░░░░╚═╝░░░╚═════╝░░░░╚═╝░░░╚═╝░░╚═╝\n", color=YELLOW) + \
                    "\n" + \
                    f"                                                                  ...from Ukraine with love {heart}\n"
-    print(flair_string)
-    print(ansi_wrap("Initializing...\n", color=GREEN))
+    return flair_string
+
+
+def print_flair():
+    print(get_flair_string())
+    print(ansi_wrap("Initializing...\n", color="green"))
 
 
 def velyka_kara():

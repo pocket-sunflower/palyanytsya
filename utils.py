@@ -5,7 +5,7 @@ import sys
 from humanfriendly.terminal import ansi_wrap
 from requests import get
 
-from MHDDoS.start import ToolsConsole
+from MHDDoS.start import Tools
 
 
 def supports_complex_colors():
@@ -21,7 +21,7 @@ def print_vpn_warning():
     WARNING_YELLOW = (236, 232, 26) if supports_complex_colors() else "yellow"
 
     local_ip = get('http://ip.42.pl/raw').text
-    ip_data = ToolsConsole.info(local_ip)
+    ip_data = Tools.info(local_ip)
 
     print(ansi_wrap("!!! WARNING:\n"
                     f"   Please, MAKE SURE that you are using VPN.\n"
