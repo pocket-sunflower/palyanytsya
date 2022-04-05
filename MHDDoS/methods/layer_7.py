@@ -59,9 +59,9 @@ class Layer7(Thread):
                  method: str = "GET",
                  rpc: int = 1,
                  synevent: Event = None,
-                 useragents: Set[str] = None,
-                 referers: Set[str] = None,
-                 proxies: Set[Proxy] = None,
+                 useragents: List[str] = None,
+                 referers: List[str] = None,
+                 proxies: List[Proxy] = None,
                  bytes_sent_counter: Counter = None,
                  requests_sent_counter: Counter = None):
         Thread.__init__(self, daemon=True)
