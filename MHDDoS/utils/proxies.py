@@ -36,7 +36,7 @@ def load_proxies(file_path_or_url: str, proxy_type: ProxyType) -> List[Proxy] | 
     """
     # read proxies from file
     proxies_lines = read_configuration_file_lines(file_path_or_url)
-    proxies = [Proxy(line, proxy_type=proxy_type) for line in proxies_lines]
+    proxies = list(ProxyUtiles.parseAll(proxies_lines))
     logger.info(f"Loaded {len(proxies)} unique proxies from '{file_path_or_url}'.")
 
     return proxies

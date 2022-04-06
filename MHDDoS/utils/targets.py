@@ -74,8 +74,6 @@ class Target:
             return False
         if not validators.ipv4(self.ip):
             return False
-        if not validators.url(self.url):
-            return False
         if self.port < 1 or self.port > 65535:
             return False
 

