@@ -39,7 +39,7 @@ class Target:
 
     def __init__(self,
                  address: str,
-                 port: int = DEFAULT_PORT):
+                 port: int = None):
         if validators.ipv4(address):
             self.ip = address
         elif validators.url(address):
@@ -52,7 +52,10 @@ class Target:
             # if address is URL, find the associated IP
             self.ip = Tools.get_ip(self.url.host)
 
-        self.port = port
+        if port is None:
+            self.port = DEFAULT_PORT
+        else:
+            self.port = port
 
     def __str__(self):
         string = ""
@@ -97,27 +100,31 @@ class Target:
 
         # we have data for a target; create it and populate with what we can find
         target_match = target_matches[0]
-        target = Target("")
 
         # parse ip using regex
         ip_matches = REGEX_IP.findall(target_match)
+        ip = None
         if len(ip_matches) > 0:
-            target.ip = ip_matches[0]
+            ip = ip_matches[0]
 
         # parse URL using regex
         url_matches = REGEX_DOMAIN_URL.findall(target_match)
+        url = None
         if len(url_matches) > 0:
-            url = Tools.ensure_http_present(url_matches[0])
-            target.url = URL(url)
+            url = url_matches[0]
 
         # parse port using regex
         port_matches = REGEX_COLON_PORT.findall(target_match)
+        port = None
         if len(port_matches) > 0:
-            target.port = int(port_matches[0].removeprefix(":"))
+            port = int(port_matches[0].removeprefix(":"))
 
         # # parse protocol using regex
         # protocol_matches = REGEX_PROTOCOL.findall(target_match)
         # if len(protocol_matches) > 0:
         #     target.protocol = int(protocol_matches[0].removesuffix("://"))
 
-        return target
+        return Target(
+            address=ip if ip is not None else url,
+            port=port
+        )

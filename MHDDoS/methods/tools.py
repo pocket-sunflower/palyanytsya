@@ -317,6 +317,7 @@ class Tools:
     @staticmethod
     def get_ip(domain: str) -> str | None:
         url_no_protocol = domain.split("://")[1] if ("://" in domain) else domain
+        print(f"AAAAAAAAAAAAAAAAAAAA {url_no_protocol}")
         dns_info = Tools.info(url_no_protocol)
         if not dns_info["success"]:
             return None
@@ -367,7 +368,7 @@ class Tools:
             suffix = MULTIPLES[multiple].format("i" if binary else "")
             return f"{value:.{precision}f} {suffix}"
         else:
-            return f"-- B"
+            return f"0 B"
 
     @staticmethod
     def humanformat(num: int, precision: int = 2):
