@@ -45,6 +45,7 @@ class TargetHealthCheckUtils:
     @staticmethod
     def layer_7_ping(url: str, timeout: float = 10, proxy: Proxy = None) -> Response | RequestException:
         # craft fake headers to make it look like a browser request
+        # TODO: embed port in URL
         url_object = URL(url)
         mhddos_layer_7 = Layer7(url_object, url_object.host)
         fake_headers_string = mhddos_layer_7.randHeadercontent
@@ -121,7 +122,7 @@ class TargetHealthCheckUtils:
     def connectivity_check_layer_7(address: str,
                                    port: int = 443,
                                    timeout: float = 10,
-                                   proxies: List[Proxy] = None):
+                                   proxies: List[Proxy] = None) -> Response | RequestException:
         """
 
         Args:
@@ -161,7 +162,7 @@ class TargetHealthCheckUtils:
                      layer_4_retries: int = 5,
                      layer_4_timeout: float = 2,
                      layer_4_interval: float = 0.2,
-                     layer_7_timeout: float = 10) -> (Host, Response | None, List[Host], List[Response | None]):
+                     layer_7_timeout: float = 10) -> (Host, Response | RequestException, List[Host], List[Response | RequestException]):
         """
         Checks the health of the target on Layer 4 and Layer 7
         (depending on the selected protocol and attack method).
