@@ -177,10 +177,10 @@ def attack(
     # TODO: launch a lot of threads according to the given methods
 
     # PREPARE FOR THREAD MANAGEMENT
-    INITIAL_THREADS_COUNT = 100
-    THREADS_MAX_LIMIT = 4000
+    INITIAL_THREADS_COUNT = 1000
+    THREADS_MAX_LIMIT = 1000
     THREADS_MIN_LIMIT = 1
-    THREADS_STEP = 100
+    THREADS_STEP = 10
     thread_stop_events: List[Event] = []
 
     def start_new_attack_thread():
@@ -209,46 +209,63 @@ def attack(
     def running_threads_count() -> int:
         return len(thread_stop_events)
 
-    def step_up():
+    def increase_attack_threads():
         for _ in range(THREADS_STEP):
             if running_threads_count() >= THREADS_MAX_LIMIT:
                 break
             start_new_attack_thread()
 
-    def step_down():
+    def decrease_attack_threads():
         for _ in range(THREADS_STEP):
             if running_threads_count() <= THREADS_MIN_LIMIT:
                 break
-            start_new_attack_thread()
+            stop_attack_thread()
 
     # LOWER PROCESS PRIORITY
     process = psutil.Process(os.getpid())
-    if os.name == 'nt':
-        process.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
-    else:
-        process.nice(19)
+    # if os.name == 'nt':
+    #     process.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
+    # else:
+    #     process.nice(19)
 
     # ATTACK
     logger.info(f"Starting attack at {target.ip}:{target.port} using {attack_method} attack method.")
     for _ in range(INITIAL_THREADS_COUNT):
         start_new_attack_thread()
 
+    # INIT COUNTERS
     global last_counters_update_time
     last_counters_update_time = perf_counter()
+    pps, tp, bps, tb = update_counters(PACKETS_SENT, TOTAL_PACKETS_SENT, BYTES_SENT, TOTAL_BYTES_SENT)
 
     while True:
+        sleep(1)
+
+        # update counters
+        previous_pps = pps
+        pps, tp, bps, tb = update_counters(PACKETS_SENT, TOTAL_PACKETS_SENT, BYTES_SENT, TOTAL_BYTES_SENT)
+
+        ratio = pps / previous_pps if previous_pps > 0 else float("inf")
+        THRESHOLD = 0.05
+        logger.info(f"{ratio} {ratio > 1 + THRESHOLD}")
+        if ratio > 1 + THRESHOLD:  # TODO: use ratio
+            increase_attack_threads()
+        # elif ratio < 1:
+        #     decrease_attack_threads()
+
+        cpu_usage = process.cpu_percent()
         # TODO:
         #       - check CPU utilization
         #       - decrease/increase threads
         # step_up()
         #       - push attack status into the queue
 
-        # update counters
-        pps, tp, bps, tb = update_counters(PACKETS_SENT, TOTAL_PACKETS_SENT, BYTES_SENT, TOTAL_BYTES_SENT)
-
-        sleep(1)
-        logger.info(f"Total bytes sent: {tb}, total requests: {tp}, BPS: {bps}/s, PPS: {pps} p/s, active threads: {len(thread_stop_events)}")
-        # stop_attack_thread()
+        # log
+        pps_string = Tools.humanformat(int(pps))
+        bps_string = Tools.humanbytes(int(bps))
+        tp_string = Tools.humanformat(int(tp))
+        tb_string = Tools.humanbytes(int(tb))
+        logger.info(f"Total bytes sent: {tb_string}, total requests: {tp_string}, BPS: {bps_string}/s, PPS: {pps_string} p/s, active threads: {len(thread_stop_events)}, cpu: {cpu_usage}%")
 
 
 last_counters_update_time = 0
@@ -257,22 +274,24 @@ last_counters_update_time = 0
 def update_counters(rolling_packets_counter: Counter,
                     total_packets_counter: Counter,
                     rolling_bytes_counter: Counter,
-                    total_bytes_counter: Counter) -> (str, str, str, str):
+                    total_bytes_counter: Counter) -> (float, float, float, float):
     global last_counters_update_time
     time_since_last_update = perf_counter() - last_counters_update_time
+    last_counters_update_time = perf_counter()
 
     # update total request counts
     total_packets_counter += int(rolling_packets_counter)
-    rolling_packets_counter.set(0)
     total_bytes_counter += int(rolling_bytes_counter)
-    rolling_bytes_counter.set(0)
-    last_counters_update_time = perf_counter()
 
-    # return current stats
-    pps = Tools.humanformat(int(int(rolling_packets_counter) / time_since_last_update) if time_since_last_update > 0 else 0)
-    bps = Tools.humanbytes(int(int(rolling_bytes_counter) / time_since_last_update) if time_since_last_update > 0 else 0)
-    tp = Tools.humanformat(int(total_packets_counter))
-    tb = Tools.humanbytes(int(total_bytes_counter))
+    # save current stats
+    pps = int(rolling_packets_counter) / time_since_last_update if time_since_last_update > 0 else 0
+    bps = int(rolling_bytes_counter) / time_since_last_update if time_since_last_update > 0 else 0
+    tp = int(total_packets_counter)
+    tb = int(total_bytes_counter)
+
+    # reset rolling counters
+    rolling_packets_counter.set(0)
+    rolling_bytes_counter.set(0)
 
     return pps, tp, bps, tb
 

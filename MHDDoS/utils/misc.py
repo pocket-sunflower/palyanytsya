@@ -33,6 +33,9 @@ class Counter(object):
 
 @dataclass
 class AttackState:
+    # identification
+    attack_pid: int
+
     # performance
     active_threads_count: int
     time_since_last_packet_sent: float
