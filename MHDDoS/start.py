@@ -51,8 +51,8 @@ UNLIMITED_RPC = 1000000000000  # number of requests per connection used to make 
 
 
 def attack(
-    attack_method: str,  # TODO: add option to use multiple attack methods
     target: Target,
+    attack_method: str,  # TODO: add option to use multiple attack methods
     proxy_type: ProxyType = ProxyType.SOCKS5,
     proxies_file_path: str | None = "proxies/socks5.txt",
     user_agents_file_path: str | None = "user_agents.txt",
@@ -234,7 +234,7 @@ def attack(
         start_new_attack_thread()
 
     global last_counters_update_time
-    last_counters_update_time = time()
+    last_counters_update_time = perf_counter()
 
     while True:
         # TODO:
@@ -259,18 +259,18 @@ def update_counters(rolling_packets_counter: Counter,
                     rolling_bytes_counter: Counter,
                     total_bytes_counter: Counter) -> (str, str, str, str):
     global last_counters_update_time
-    time_since_last_update = time() - last_counters_update_time
+    time_since_last_update = perf_counter() - last_counters_update_time
 
     # update total request counts
     total_packets_counter += int(rolling_packets_counter)
     rolling_packets_counter.set(0)
     total_bytes_counter += int(rolling_bytes_counter)
     rolling_bytes_counter.set(0)
-    last_counters_update_time = time()
+    last_counters_update_time = perf_counter()
 
     # return current stats
-    pps = Tools.humanformat(int(int(rolling_packets_counter) / time_since_last_update))
-    bps = Tools.humanbytes(int(int(rolling_bytes_counter) / time_since_last_update))
+    pps = Tools.humanformat(int(int(rolling_packets_counter) / time_since_last_update) if time_since_last_update > 0 else 0)
+    bps = Tools.humanbytes(int(int(rolling_bytes_counter) / time_since_last_update) if time_since_last_update > 0 else 0)
     tp = Tools.humanformat(int(total_packets_counter))
     tb = Tools.humanbytes(int(total_bytes_counter))
 

