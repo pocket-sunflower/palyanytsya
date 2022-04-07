@@ -3,8 +3,11 @@ Implementations of utilities for checking target's health on layers 4 and 7.
 """
 
 import itertools
+import time
 from _socket import IPPROTO_TCP, SHUT_RDWR
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from queue import Queue
 from socket import socket, AF_INET, SOCK_STREAM
 from time import perf_counter, sleep
 from typing import Union, List
@@ -17,6 +20,16 @@ from yarl import URL
 from MHDDoS.methods.layer_7 import Layer7
 from MHDDoS.methods.methods import Methods
 from MHDDoS.methods.tools import Tools
+from MHDDoS.utils.targets import Target
+
+
+@dataclass
+class HealthcheckState:
+    connectivity_l7: Response | RequestException | None
+    connectivity_l4: Host | None
+    connectivity_l7_proxied: List[Response | RequestException]
+    connectivity_l4_proxied: List[Host]
+    timestamp: float
 
 
 class TargetHealthCheckUtils:
@@ -43,11 +56,9 @@ class TargetHealthCheckUtils:
         return Host(ip, retries, round_trip_times)
 
     @staticmethod
-    def layer_7_ping(url: str, timeout: float = 10, proxy: Proxy = None) -> Response | RequestException:
+    def layer_7_ping(address: URL, timeout: float = 10, proxy: Proxy = None) -> Response | RequestException:
         # craft fake headers to make it look like a browser request
-        # TODO: embed port in URL
-        url_object = URL(url)
-        mhddos_layer_7 = Layer7(url_object, url_object.host)
+        mhddos_layer_7 = Layer7(address, address.host)
         fake_headers_string = mhddos_layer_7.randHeadercontent
         fake_headers_dict = {}
         for entry in fake_headers_string.strip("\n").split("\n"):
@@ -64,7 +75,7 @@ class TargetHealthCheckUtils:
                     "https": proxy.__str__()
                 }
 
-            return get(url,
+            return get(address.human_repr(),
                        timeout=timeout,
                        proxies=proxies,
                        headers=fake_headers_dict)
@@ -75,7 +86,6 @@ class TargetHealthCheckUtils:
     @staticmethod
     def connectivity_check_layer_4(ip: str,
                                    port: int,
-                                   attack_method: str,
                                    retries: int = 5,
                                    timeout: float = 2,
                                    interval: float = 0.2,
@@ -86,7 +96,6 @@ class TargetHealthCheckUtils:
         Args:
             ip: IP of the target.
             port: Port of the target
-            attack_method: MHDDoS attack method to be used for attacking the target (affects the use of proxies).
             retries: Number of retries when checking connectivity.
             timeout: Timeout when checking connectivity.
             interval: Interval between retries.
@@ -99,8 +108,7 @@ class TargetHealthCheckUtils:
         """
         layer_4_result = None
         layer_4_proxied_results = None
-        if (attack_method in {"MINECRAFT", "MCBOT", "TCP"} or attack_method in Methods.LAYER7_METHODS) \
-                and proxies is not None and len(proxies) > 0:
+        if proxies is not None and len(proxies) > 0:
             # these Layer 4 methods can use proxies, so check for every proxy using proxied TCP socket
             with ThreadPoolExecutor() as executor:
                 # we use executor.map to ensure that the order of the ping results corresponds to the passed list of proxies
@@ -119,10 +127,9 @@ class TargetHealthCheckUtils:
         return layer_4_result, layer_4_proxied_results
 
     @staticmethod
-    def connectivity_check_layer_7(address: str,
-                                   port: int = 443,
+    def connectivity_check_layer_7(address: URL,
                                    timeout: float = 10,
-                                   proxies: List[Proxy] = None) -> Response | RequestException:
+                                   proxies: List[Proxy] = None) -> (Response | RequestException | None, List[Response | RequestException] | None):
         """
 
         Args:
@@ -154,56 +161,43 @@ class TargetHealthCheckUtils:
 
         return layer_7_response, layer_7_proxied_responses
 
-    @staticmethod
-    def health_check(ip: Union, port: int,
-                     attack_method: str = None,
-                     url: str = None,
-                     proxies: List[Proxy] = None,
-                     layer_4_retries: int = 5,
-                     layer_4_timeout: float = 2,
-                     layer_4_interval: float = 0.2,
-                     layer_7_timeout: float = 10) -> (Host, Response | RequestException, List[Host], List[Response | RequestException]):
-        """
-        Checks the health of the target on Layer 4 and Layer 7
-        (depending on the selected protocol and attack method).
 
-        Args:
-            ip: IP of the target.
-            port: Port of the target
-            attack_method: MHDDoS attack method to be used for attacking the target (affects the use of proxies in Layer 4).
-            url: URL of the target.
-            proxies: List of the proxies to use where possible for connectivity check.
-            layer_4_retries: Number of retries when checking connectivity via Layer 4.
-            layer_4_timeout: Timeout when checking connectivity via Layer 4.
-            layer_4_interval: Interval between retries when checking connectivity via Layer 4.
-            layer_7_timeout: Timeout when checking connectivity via Layer 7.
+def connectivity_check_loop(interval: float,
+                            target: Target,
+                            method: str,
+                            proxies: Union[set, None],
+                            state_queue: Queue):
+    """
+    Constantly checks connectivity of the given target and feeds results in the given Queue.
 
-        Returns:
-            A tuple containing
-              (1) Host status for Layer 4.
-              (2) HTTP response for Layer 7.
-              (3) Proxied host statuses for Layer 4 in a list corresponding to the provided list of proxies.
-              (4) Proxied HTTP responses for Layer 7 in a list corresponding to the provided list of proxies.
-
-        Notes:
-            Layer 7 results will contain RequestException if the request fails.
-        """
-        
-        layer_4_result, layer_4_proxied_results = TargetHealthCheckUtils.connectivity_check_layer_4(
-            ip,
-            port,
-            attack_method,
-            layer_4_retries,
-            layer_4_timeout,
-            layer_4_interval,
-            proxies
+    Args:
+        interval: Check interval in seconds.
+        target: Target to check.
+        method: Attack method used for
+        proxies: List of proxies to use for connectivity check.
+        state_queue: Queue where the check results will be put to.
+    """
+    while True:
+        l4_result, l4_proxied_results = TargetHealthCheckUtils.connectivity_check_layer_4(
+            ip=target.ip,
+            port=target.port,
+            proxies=proxies if method in Methods.WHICH_SUPPORT_PROXIES else None,
+            retries=1,
+            timeout=2,
+            interval=0.2
         )
-
-        layer_7_response, layer_7_proxied_responses = TargetHealthCheckUtils.connectivity_check_layer_7(
-            url if url is not None else ip,
-            port,
-            layer_7_timeout,
-            proxies
+        l7_response, l7_proxied_responses = TargetHealthCheckUtils.connectivity_check_layer_7(
+            address=target.url.human_repr() if target.has_url else URL(f"https://{target.ip}:{target.port}"),
+            proxies=proxies,
+            timeout=10
         )
+        state = HealthcheckState(
+            connectivity_l7=l7_response,
+            connectivity_l4=l4_result,
+            connectivity_l7_proxied=l7_proxied_responses,
+            connectivity_l4_proxied=l4_proxied_results,
+            timestamp=time.time()
+        )
+        state_queue.put(state)
 
-        return layer_4_result, layer_7_response, layer_4_proxied_results, layer_7_proxied_responses
+        sleep(interval)
