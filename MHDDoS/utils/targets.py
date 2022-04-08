@@ -82,6 +82,10 @@ class Target:
 
         return True
 
+    @property
+    def has_url(self):
+        return self.url is not None
+
     @staticmethod
     def parse_from_string(string: str) -> Target | None:
         """
