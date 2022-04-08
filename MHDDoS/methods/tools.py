@@ -317,7 +317,6 @@ class Tools:
     @staticmethod
     def get_ip(domain: str) -> str | None:
         url_no_protocol = domain.split("://")[1] if ("://" in domain) else domain
-        print(f"AAAAAAAAAAAAAAAAAAAA {url_no_protocol}")
         dns_info = Tools.info(url_no_protocol)
         if not dns_info["success"]:
             return None
