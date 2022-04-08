@@ -109,7 +109,7 @@ def validate_proxies(proxies: List[Proxy],
 
     validation_start_time = time.time()
     n_validated = Counter(0)
-    n_tries = Counter(1)
+    n_tries = Counter(0)
     validated_proxies_indices: Set[int] = set()
 
     def post_update():
@@ -146,7 +146,7 @@ def validate_proxies(proxies: List[Proxy],
                     validated_proxies_indices.add(j)
 
             # update stats
-            n_validated.set(len(validated_proxies))
+            n_validated.set(len(validated_proxies_indices))
 
     # run checks in another thread
     thread = Thread(daemon=True, target=proxy_check_thread)
