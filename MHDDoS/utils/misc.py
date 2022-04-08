@@ -3,18 +3,15 @@ Miscellaneous utilities used by MHDDoS.
 """
 
 import ctypes
-from dataclasses import dataclass
-from multiprocessing import RawValue, Lock
-from typing import List
-
-from icmplib import Host
-from requests import Response, RequestException
+from multiprocessing import RawValue, Lock, Queue
+from queue import Empty
+from typing import Any
 
 
 class Counter(object):
 
-    def __init__(self, value=0):
-        self._value = RawValue(ctypes.c_longlong, value)
+    def __init__(self, value=0, value_type=ctypes.c_longlong):
+        self._value = RawValue(value_type, value)
         self._lock = Lock()
 
     def __iadd__(self, value):
@@ -25,30 +22,28 @@ class Counter(object):
     def __int__(self):
         return self._value.value
 
+    def __float__(self):
+        return self._value.value
+
     def set(self, value):
         with self._lock:
             self._value.value = value
         return self
 
 
-@dataclass
-class AttackState:
-    # identification
-    attack_pid: int
+def get_last_from_queue(queue: Queue) -> Any | None:
+    """
+    Drains the queue and returns the last item put into it.
 
-    # performance
-    active_threads_count: int
-    time_since_last_packet_sent: float
+    Args:
+        queue: Queue to get the item from.
 
-    # connectivity
-    used_proxies_count: int
-    connectivity_l7: List[Response | RequestException]
-    connectivity_l4: List[Host]
-
-    # throughput
-    total_packets_sent: int
-    packets_per_second: int
-    total_bytes_sent: int
-    bytes_per_second: int
-
-
+    Returns:
+        Last item if the queue was not empty, None otherwise.
+    """
+    result = None
+    try:
+        while True:
+            result = queue.get_nowait()
+    except Empty:
+        return result
