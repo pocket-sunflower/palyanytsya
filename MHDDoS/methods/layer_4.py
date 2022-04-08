@@ -40,7 +40,7 @@ class Layer4(Thread):
                  ref: List[str] = None,
                  method: str = "TCP",
                  synevent: Event = None,
-                 proxies: Set[Proxy] = None,
+                 proxies: List[Proxy] = None,
                  bytes_sent_counter: Counter = None,
                  requests_sent_counter: Counter = None,
                  last_request_timestamp: Counter = None):
