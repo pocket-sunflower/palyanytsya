@@ -27,7 +27,7 @@ DEFAULT_PORT = 443
 # DEFAULT_L4_PROTOCOL = "TCP"
 # DEFAULT_L7_PROTOCOL = "HTTPS"
 
-
+# TODO: add protocol data to target (attack method can be derived based on that)
 class Target:
     """
     Utility class representing an attack target.
@@ -40,8 +40,15 @@ class Target:
     def __init__(self,
                  address: str,
                  port: int = None):
+        if port is None:
+            self.port = DEFAULT_PORT
+        else:
+            self.port = port
+
         if validators.ipv4(address):
             self.ip = address
+            protocol = "https" if port == 443 else "http"
+            self.url = URL(f"{protocol}://{self.ip}:{self.port}")
         elif validators.url(address):
             # ensure protocol in URL
             address = Tools.ensure_http_present(address)
@@ -51,11 +58,6 @@ class Target:
             self.url = URL(address)
             # if address is URL, find the associated IP
             self.ip = Tools.get_ip(self.url.host)
-
-        if port is None:
-            self.port = DEFAULT_PORT
-        else:
-            self.port = port
 
     def __str__(self):
         string = ""
@@ -69,6 +71,11 @@ class Target:
 
         return string
 
+    def __eq__(self, other):
+        if not isinstance(other, Target):
+            return
+        return self.ip == other.ip and self.url == other.url and self.port == self.port
+
     def is_valid(self) -> bool:
         """
         A valid target will have a valid IP, and (optionally) a URL.
@@ -81,10 +88,6 @@ class Target:
             return False
 
         return True
-
-    @property
-    def has_url(self):
-        return self.url is not None
 
     @staticmethod
     def parse_from_string(string: str) -> Target | None:

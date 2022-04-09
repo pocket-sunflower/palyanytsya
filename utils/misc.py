@@ -1,11 +1,32 @@
 import os
 import socket
 import sys
+import time
 
 from humanfriendly.terminal import ansi_wrap
 from requests import get
 
 from MHDDoS.start import Tools
+
+
+class TimeInterval:
+    interval: float
+    _last_interval_timestamp: float
+
+    def __init__(self, interval: float):
+        self.interval = interval
+        self.reset()
+
+    def check_if_has_passed(self) -> bool:
+        time_since_last = time.perf_counter() - self._last_interval_timestamp
+        if time_since_last >= self.interval:
+            self._last_interval_timestamp = time.perf_counter()
+            return True
+        else:
+            return False
+
+    def reset(self) -> None:
+        self._last_interval_timestamp = float("-inf")
 
 
 def supports_complex_colors():

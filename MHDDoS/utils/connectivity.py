@@ -191,7 +191,7 @@ def connectivity_check_loop(interval: float,
             interval=0.2
         )
         l7_response, l7_proxied_responses = ConnectivityUtils.connectivity_check_layer_7(
-            address=target.url if target.has_url else URL(f"https://{target.ip}:{target.port}"),
+            address=target.url,
             proxies=proxies,
             timeout=10
         )

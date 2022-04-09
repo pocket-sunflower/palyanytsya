@@ -24,7 +24,7 @@ def read_configuration_file_text(file_path_or_url: str) -> str | None:
     """
     # if URL, load with a request
     if validators.url(file_path_or_url):
-        response = requests.get(file_path_or_url, timeout=10)
+        response = requests.get(file_path_or_url, timeout=30)
         return response.text
 
     # if not URL, try to look locally

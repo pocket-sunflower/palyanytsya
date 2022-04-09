@@ -16,7 +16,6 @@ from humanfriendly.terminal import ansi_wrap
 from requests import ReadTimeout, get
 
 from MHDDoS.utils.config_files import read_configuration_file_lines
-from MHDDoS.utils.console_utils import clear_lines_from_console
 from MHDDoS.utils.connectivity import ConnectivityUtils
 from MHDDoS.utils.logs import CyclicPeriods
 from MHDDoS.utils.misc import Counter
@@ -370,7 +369,6 @@ class ProxyManager:
                 print(message)
 
             sleep(cyclic_periods.update_interval)
-            clear_lines_from_console(1)
 
         duration = perf_counter() - check_start_time
         n_validated = int(n_validated)

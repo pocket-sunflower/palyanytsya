@@ -24,7 +24,7 @@ from MHDDoS.methods.tools import Tools
 from MHDDoS.utils.config_files import read_configuration_file_lines, read_configuration_file_text
 from MHDDoS.utils.connectivity import connectivity_check_loop, ConnectivityState
 from MHDDoS.utils.misc import Counter, get_last_from_queue
-from MHDDoS.utils.proxies import ProxyManager, load_proxies, validate_proxies, proxies_validation_thread, ProxiesValidationState
+from MHDDoS.utils.proxies import ProxyManager, load_proxies, proxies_validation_thread, ProxiesValidationState
 from MHDDoS.utils.targets import Target
 
 # TODO: log to stderr
@@ -101,6 +101,27 @@ def update_throughput_counters(rolling_packets_counter: Counter,
     return pps, tp, bps, tb
 
 
+def apply_process_modifications() -> psutil.Process:
+    # FIX OPEN FILES LIMIT
+    with suppress(ImportError):
+        import resource
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        if soft < hard:
+            with suppress(Exception):
+                resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
+
+    # LOWER PROCESS PRIORITY
+    # this allows us to use other apps normally while the attack is running;
+    # and if the CPU is free, attack will run with full performance anyway
+    process = psutil.Process(os.getpid())
+    if os.name == 'nt':
+        process.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
+    else:
+        process.nice(19)
+
+    return process
+
+
 def attack(
         target: Target,
         attack_method: str,  # TODO: add option to use multiple attack methods
@@ -110,6 +131,9 @@ def attack(
         reflectors_file_path: str | None = None,
         attack_state_queue: Queue = None
 ):
+    # PREPARE PROCESS
+    process = apply_process_modifications()
+
     # LOAD CONFIG FILES
     user_agents = read_configuration_file_lines(user_agents_file_path) if user_agents_file_path is not None else []
     referrers = read_configuration_file_lines(referrers_file_path) if referrers_file_path is not None else []
@@ -158,7 +182,7 @@ def attack(
         ), "Install bombardier: https://github.com/MHProDev/MHDDoS/wiki/BOMB-attack_method"
 
     # INITIALIZE THREAD MANAGEMENT VARIABLES
-    INITIAL_THREADS_COUNT = 1000
+    INITIAL_THREADS_COUNT = 100
     THREADS_MAX_LIMIT = 1000
     THREADS_MIN_LIMIT = 1
     THREADS_STEP = 10
@@ -176,6 +200,7 @@ def attack(
         attack_thread = None
         if selected_attack_method in Methods.LAYER7_METHODS:
             attack_thread = Layer7(
+                # TODO: handle portocols
                 target=target.url,
                 host=target.ip,
                 method=selected_attack_method,
@@ -258,15 +283,6 @@ def attack(
             time_since_last_packet_sent=time.time() - float(cntr_last_request_timestamp),
         )
         attack_state_queue.put(attack_status)
-
-    # LOWER PROCESS PRIORITY
-    # this allows us to use other apps normally while the attack is running;
-    # and if the CPU is free, attack will run with full performance anyway
-    process = psutil.Process(os.getpid())
-    if os.name == 'nt':
-        process.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS)
-    else:
-        process.nice(19)
 
     # INITIALIZE COUNTERS
     cntr_rolling_requests = Counter()
@@ -355,7 +371,6 @@ def attack(
         # generate attack status
         post_status_update()
 
-        logger.warning(int(cntr_total_bytes))
         # log
         pps_string = Tools.humanformat(int(pps))
         bps_string = Tools.humanbytes(int(bps))

