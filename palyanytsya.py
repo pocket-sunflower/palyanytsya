@@ -1,13 +1,17 @@
-from sys import argv
+import time
+from multiprocessing import Queue
 
 import colorama
 from humanfriendly.terminal import *
 
-from MHDDoS.start import start
-from utils import print_vpn_warning, supports_complex_colors
+from utils.gui import GUI
+from utils.input_args import parse_command_line_args
+from utils.logs import logger
+from utils.misc import print_vpn_warning, supports_complex_colors
+from utils.supervisor import AttackSupervisor
 
 
-def print_flair():
+def get_flair_string():
     BLUE = (0, 91, 187) if supports_complex_colors() else "blue"
     YELLOW = (255, 213, 0) if supports_complex_colors() else "yellow"
     GREEN = (8, 255, 8) if supports_complex_colors() else "green"
@@ -26,25 +30,28 @@ def print_flair():
                    ansi_wrap("╚═╝░░░░░╚═╝░░╚═╝╚══════╝░░░╚═╝░░░╚═╝░░╚═╝╚═╝░░╚══╝░░░╚═╝░░░░░░╚═╝░░░╚═════╝░░░░╚═╝░░░╚═╝░░╚═╝\n", color=YELLOW) + \
                    "\n" + \
                    f"                                                                  ...from Ukraine with love {heart}\n"
-    print(flair_string)
-    print(ansi_wrap("Initializing...\n", color=GREEN))
+    return flair_string
+
+
+def print_flair():
+    print(get_flair_string())
+    print(ansi_wrap("Initializing...\n", color="green"))
 
 
 def velyka_kara():
     print_flair()
     print_vpn_warning()
 
-    # override script name
-    argv[0] = "palyanytsya.py"
+    args = parse_command_line_args()
 
-    if len(argv) < 5:
-        print("Not enough arguments supplied. Please check the reference below:\n")
-        argv.insert(1, "HELP")
+    attacks_state_queue = Queue()
+    supervisor_state_queue = Queue()
 
-    # enable debug to see attack progress
-    argv.append("true")
+    AttackSupervisor(args, attacks_state_queue, supervisor_state_queue).start()
+    # GUI(args, attacks_state_queue, supervisor_state_queue).start()
 
-    start()
+    while True:
+        time.sleep(1)
 
 
 if __name__ == '__main__':
@@ -53,7 +60,7 @@ if __name__ == '__main__':
     try:
         velyka_kara()
     except KeyboardInterrupt:
-        print("\nExecution aborted.\n")
+        print("\nExecution aborted (Ctrl+C).\n")
     except SystemExit:
         pass
 

@@ -3,14 +3,15 @@ import time
 from sys import argv
 
 import colorama
+import validators
 from humanfriendly.terminal import ansi_wrap
 
-from MHDDoS.start import start, ToolsConsole, Methods
-from utils import print_vpn_warning, supports_complex_colors, is_valid_ipv4
-import validators
+from MHDDoS.methods.methods import Methods
+from MHDDoS.start import start, Tools
+from utils import print_vpn_warning, supports_complex_colors
 
 
-def print_flair():
+def get_flair_string():
     BLUE = (0, 91, 187) if supports_complex_colors() else "blue"
     YELLOW = (255, 213, 0) if supports_complex_colors() else "yellow"
     GREEN = (8, 255, 8) if supports_complex_colors() else "green"
@@ -28,8 +29,13 @@ def print_flair():
                    ansi_wrap("╚═╝░░░░░░░░╚═╝░░░╚═╝░░╚═╝╚═╝╚══════╝╚═╝░░╚═╝░╚════╝░╚═╝░░╚═╝\n", color=YELLOW) + \
                    "\n" + \
                    f"                                 ...from Ukraine with love {heart}\n"
-    print(flair_string)
-    print(ansi_wrap("Initializing...\n", color=GREEN))
+
+    return flair_string
+
+
+def print_flair():
+    print(get_flair_string())
+    print(ansi_wrap("Initializing...\n", color="green"))
 
 
 def print_notice(message: str):
@@ -59,7 +65,7 @@ def validate_target_address(address: str):
         # print(f"IPv4 {address}")
         pass
     else:
-        address = ToolsConsole.ensure_http_present(address)
+        address = Tools.ensure_http_present(address)
         if validators.url(address):
             # print(f"URL {address}")
             pass
@@ -151,7 +157,7 @@ def get_target_ip_address(address: str) -> str:
         return address
 
     url_no_protocol = address.split("://")[1]
-    dns_info = ToolsConsole.info(url_no_protocol)
+    dns_info = Tools.info(url_no_protocol)
     if not dns_info["success"]:
         print_error(f"Port provided, but IP address of '{address}' could not be found. Cannot proceed.")
         sys.exit(1)
