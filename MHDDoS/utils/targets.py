@@ -10,7 +10,7 @@ from MHDDoS.methods.tools import Tools
 REGEX_FLAGS = re.RegexFlag.UNICODE | re.RegexFlag.IGNORECASE
 
 REGEX_PROTOCOL = r"(?:tcp|udp|ssh|dns|https|http|smtp)"
-REGEX_DOMAIN_URL = r"(?:http[s]?:\/\/)?(?:[a-zA-Z0-9\-]+)(?:\.[a-zA-Z0-9\-]+)*(?:\.[a-zA-Z\-][a-zA-Z0-9\-]+)[/]?"
+REGEX_DOMAIN_URL = r"(?:[a-zA-Z0-9\-]+)(?:\.[a-zA-Z0-9\-]+)*(?:\.[a-zA-Z\-][a-zA-Z0-9\-]+)[/]?"
 REGEX_IP = r"(?:(?:(?:2[5][0-5]|2[0-4][0-9]|1[0-9]{2}|[0-9]{1,2})\.(?:2[5][0-5]|2[0-4][0-9]|1[0-9]{2}|[0-9]{1,2})\." \
            r"(?:2[5][0-5]|2[0-4][0-9]|1[0-9]{2}|[0-9]{1,2})\.(?:2[5][0-5]|2[0-4][0-9]|1[0-9]{2}|[0-9]{1,2}))){1}"
 REGEX_PORT = r"(?:6553[0-5]|655[0-2][0-9]|65[0-4][0-9]{2}|6[0-4][0-9]{3}|[1-5][0-9]{4}|[1-9][0-9]{0,3})"
@@ -24,8 +24,9 @@ REGEX_COLON_PORT = re.compile(REGEX_COLON_PORT, REGEX_FLAGS)
 REGEX_TARGET = re.compile(REGEX_TARGET, REGEX_FLAGS)
 
 DEFAULT_PORT = 443
-# DEFAULT_L4_PROTOCOL = "TCP"
-# DEFAULT_L7_PROTOCOL = "HTTPS"
+DEFAULT_L4_PROTOCOL = "tcp"
+DEFAULT_L7_PROTOCOL = "https"
+
 
 # TODO: add protocol data to target (attack method can be derived based on that)
 class Target:
@@ -35,21 +36,29 @@ class Target:
     url: URL = None
     ip: str = None
     port: int = None
-    # protocol: str = None
+    protocol: str = None
 
     def __init__(self,
                  address: str,
-                 port: int = None):
+                 port: int = None,
+                 protocol: str = None):
+        # handle port
         if port is None:
             self.port = DEFAULT_PORT
         else:
             self.port = port
 
-        if validators.ipv4(address):
+        # handle address
+        address.removesuffix("/")
+        if REGEX_IP.match(address):
+            if protocol is None:
+                protocol = DEFAULT_L4_PROTOCOL
             self.ip = address
-            protocol = "https" if port == 443 else "http"
             self.url = URL(f"{protocol}://{self.ip}:{self.port}")
-        elif validators.url(address):
+        elif REGEX_DOMAIN_URL.match(address):
+            if protocol is None:
+                protocol = DEFAULT_L7_PROTOCOL
+            address = f"{protocol}://{address}"
             # ensure protocol in URL
             address = Tools.ensure_http_present(address)
             # ensure port in URL
@@ -59,15 +68,19 @@ class Target:
             # if address is URL, find the associated IP
             self.ip = Tools.get_ip(self.url.host)
 
+        # save protocol
+        self.protocol = protocol
+
     def __str__(self):
         string = ""
         if self.url is not None:
             string += f"{self.url}"
         elif self.ip is not None:
+            if self.protocol is not None:
+                string += f"{self.protocol}://"
             string += f"{self.ip}"
-
-        if self.port is not None:
-            string += f":{self.port}"
+            if self.port is not None:
+                string += f":{self.port}"
 
         return string
 
@@ -109,6 +122,12 @@ class Target:
         target_match = target_matches[0]
 
         # parse ip using regex
+        protocol_matches = REGEX_PROTOCOL.findall(target_match)
+        protocol = None
+        if len(protocol_matches) > 0:
+            protocol = protocol_matches[0]
+
+        # parse ip using regex
         ip_matches = REGEX_IP.findall(target_match)
         ip = None
         if len(ip_matches) > 0:
@@ -131,7 +150,10 @@ class Target:
         # if len(protocol_matches) > 0:
         #     target.protocol = int(protocol_matches[0].removesuffix("://"))
 
-        return Target(
+        parsed_target = Target(
             address=ip if ip is not None else url,
-            port=port
+            port=port,
+            protocol=protocol
         )
+
+        return parsed_target
