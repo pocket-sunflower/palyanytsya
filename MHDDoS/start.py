@@ -27,14 +27,17 @@ from MHDDoS.utils.misc import Counter, get_last_from_queue
 from MHDDoS.utils.proxies import ProxyManager, load_proxies, proxies_validation_thread, ProxiesValidationState
 from MHDDoS.utils.targets import Target
 
-# TODO: log to stderr
-basicConfig(format='[%(asctime)s - %(levelname)s] %(message)s',
-            datefmt="%H:%M:%S")
-logger = getLogger("MHDDoS")
-logger.setLevel("INFO")
+# # TODO: log to stderr
+# basicConfig(format='[%(asctime)s - %(levelname)s] %(message)s',
+#             datefmt="%H:%M:%S")
+# logger = getLogger("MHDDoS")
+# logger.setLevel("INFO")
 
 __version__: str = "PALYANYTSYA"
 __dir__: Path = Path(__file__).parent
+
+from utils.logs import logger
+
 bombardier_path: str = ""
 
 
@@ -55,6 +58,9 @@ class AttackState:
     # identification
     attack_pid: int
 
+    # target
+    target: Target
+
     # performance
     active_threads_count: int = None
     cpu_usage: float = None
@@ -66,8 +72,8 @@ class AttackState:
     connectivity_state: ConnectivityState | None = None
 
     # throughput
-    total_packets_sent: int = None
-    packets_per_second: int = None
+    total_requests_sent: int = None
+    requests_per_second: int = None
     total_bytes_sent: int = None
     bytes_per_second: int = None
     time_since_last_packet_sent: float = None
@@ -182,8 +188,8 @@ def attack(
         ), "Install bombardier: https://github.com/MHProDev/MHDDoS/wiki/BOMB-attack_method"
 
     # INITIALIZE THREAD MANAGEMENT VARIABLES
-    INITIAL_THREADS_COUNT = 100
-    THREADS_MAX_LIMIT = 1000
+    INITIAL_THREADS_COUNT = 1
+    THREADS_MAX_LIMIT = 1
     THREADS_MIN_LIMIT = 1
     THREADS_STEP = 10
     attack_threads: List[Thread] = []
@@ -270,14 +276,16 @@ def attack(
         attack_status = AttackState(
             attack_pid=process.pid,
 
+            target=target,
+
             active_threads_count=get_running_threads_count(),
             cpu_usage=cpu_usage,
 
             proxy_validation_state=proxies_validation_state,
             connectivity_state=connectivity_state,
 
-            total_packets_sent=tb,
-            packets_per_second=pps,
+            total_requests_sent=tb,
+            requests_per_second=pps,
             total_bytes_sent=tb,
             bytes_per_second=bps,
             time_since_last_packet_sent=time.time() - float(cntr_last_request_timestamp),
@@ -336,12 +344,12 @@ def attack(
     connectivity_monitor.start()
 
     # ATTACK
-    logger.info(f"Starting attack at {target.ip}:{target.port} using {attack_method} attack method.")
+    logger.info(f"Starting attack at {target} using {attack_method} attack method.")
     for _ in range(INITIAL_THREADS_COUNT):
         start_new_attack_thread()
 
     while True:
-        time.sleep(1)
+        time.sleep(0.5)
 
         tslr = time.time() - float(cntr_last_request_timestamp)
         cpu_usage = process.cpu_percent()
@@ -376,8 +384,8 @@ def attack(
         bps_string = Tools.humanbytes(int(bps))
         tp_string = Tools.humanformat(int(tp))
         tb_string = Tools.humanbytes(int(tb))
-        logger.info(f"Total bytes sent: {tb_string}, total requests: {tp_string}, BPS: {bps_string}/s, PPS: {pps_string} p/s, tslr: {tslr*1000:.0f} ms "
-                    f"active threads: {len(attack_threads_stop_events)}, cpu: {cpu_usage}%")
+        logger.info(f"Total bytes sent: {tb_string}, total requests: {tp_string}, BPS: {bps_string}/s, PPS: {pps_string} p/s, tslr: {tslr*1000:.0f} ms, "
+                    f"threads: {len(attack_threads_stop_events)}, cpu: {cpu_usage:.0f}%")
 
 
 def start():
