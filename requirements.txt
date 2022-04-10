@@ -48,3 +48,4 @@ wcwidth~=0.2.5
 Werkzeug~=2.0.3
 x256~=0.0.3
 yarl~=1.7.2
+coloredlogs
