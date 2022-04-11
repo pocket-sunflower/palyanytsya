@@ -87,6 +87,7 @@ class AttackSupervisor(Thread):
         if not self._targets_fetch_interval.check_if_has_passed():
             return False
 
+        self._is_fetching_targets = True
         logger.info("Fetching targets...")
 
         config = self._args.config
@@ -111,10 +112,12 @@ class AttackSupervisor(Thread):
         # check if the targets changed
         if self._compare_lists(new_targets_strings, self._targets):
             logger.info("Targets have not changed.")
+            self._is_fetching_targets = False
             return False
 
         self._targets = new_targets
         logger.info(f"Targets updated. Attack processes will be re-initialized for {len(new_targets)} loaded targets.")
+        self._is_fetching_targets = False
         return True
 
     def _fetch_proxies(self) -> bool:
@@ -130,21 +133,25 @@ class AttackSupervisor(Thread):
         if not self._proxies_fetch_interval.check_if_has_passed():
             return False
 
+        self._is_fetching_proxies = True
         logger.info("Fetching proxies...")
 
         new_proxies = load_proxies(proxies_file_path)
         if new_proxies is None:
             logger.error(f"Could not load any proxies from the given path: '{proxies_file_path}'")
+            self._is_fetching_proxies = False
             return False
 
         # check if the proxies changed (we compare the addresses because Proxy objects do not have __eq__ method defined)
         new_proxies_addresses = [f"{p}" for p in new_proxies]
         if self._compare_lists(new_proxies_addresses, self._proxies_addresses):
             logger.info("Proxies have not changed.")
+            self._is_fetching_proxies = False
             return False
 
         self._proxies_addresses = new_proxies_addresses
         logger.info(f"Proxies updated. Attack processes will be re-initialized for {len(new_proxies_addresses)} loaded proxies.")
+        self._is_fetching_proxies = False
         return True
 
     def _restart_attacks(self) -> None:

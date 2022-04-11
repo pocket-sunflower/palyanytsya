@@ -21,14 +21,15 @@ def get_flair_string(t: Terminal = None):
     if t is None:
         t = Terminal()
     heart = t.red("♥")
-    flair_string = "A heavy-duty freedom-infused MHDDoS wrapper...\n" + \
+    flair_string = "\n" + \
+                   "A heavy-duty freedom-infused MHDDoS wrapper...\n" + \
                    "\n" + \
                    t.blue("██████╗░░█████╗░██╗░░░░░██╗░░░██╗░█████╗░███╗░░██╗██╗░░░██╗████████╗░██████╗██╗░░░██╗░█████╗░\n") + \
                    t.blue("██╔══██╗██╔══██╗██║░░░░░╚██╗░██╔╝██╔══██╗████╗░██║╚██╗░██╔╝╚══██╔══╝██╔════╝╚██╗░██╔╝██╔══██╗\n") + \
                    t.blue("██████╔╝███████║██║░░░░░░╚████╔╝░███████║██╔██╗██║░╚████╔╝░░░░██║░░░╚█████╗░░╚████╔╝░███████║\n") + \
-                   t.yellow("██╔═══╝░██╔══██║██║░░░░░░░╚██╔╝░░██╔══██║██║╚████║░░╚██╔╝░░░░░██║░░░░╚═══██╗░░╚██╔╝░░██╔══██║\n") + \
-                   t.yellow("██║░░░░░██║░░██║███████╗░░░██║░░░██║░░██║██║░╚███║░░░██║░░░░░░██║░░░██████╔╝░░░██║░░░██║░░██║\n") + \
-                   t.yellow("╚═╝░░░░░╚═╝░░╚═╝╚══════╝░░░╚═╝░░░╚═╝░░╚═╝╚═╝░░╚══╝░░░╚═╝░░░░░░╚═╝░░░╚═════╝░░░░╚═╝░░░╚═╝░░╚═╝\n") + \
+                   t.gold("██╔═══╝░██╔══██║██║░░░░░░░╚██╔╝░░██╔══██║██║╚████║░░╚██╔╝░░░░░██║░░░░╚═══██╗░░╚██╔╝░░██╔══██║\n") + \
+                   t.gold("██║░░░░░██║░░██║███████╗░░░██║░░░██║░░██║██║░╚███║░░░██║░░░░░░██║░░░██████╔╝░░░██║░░░██║░░██║\n") + \
+                   t.gold("╚═╝░░░░░╚═╝░░╚═╝╚══════╝░░░╚═╝░░░╚═╝░░╚═╝╚═╝░░╚══╝░░░╚═╝░░░░░░╚═╝░░░╚═════╝░░░░╚═╝░░░╚═╝░░╚═╝\n") + \
                    "\n" + \
                    f"                                                                  ...from Ukraine with love {heart}"
     return flair_string
@@ -38,11 +39,13 @@ def get_flair_string(t: Terminal = None):
 class GUI(Thread):
     """GUI thread of Palyanytsya."""
     _update_interval: float
-    _flair_update_interval: TimeInterval = TimeInterval(10)
+    _flair_update_interval: TimeInterval = TimeInterval(1)
+    _supervisor_update_interval: TimeInterval = TimeInterval(0.5)
     _attacks_update_interval: TimeInterval = TimeInterval(0.5)
     _supervisor_state: AttackSupervisorState = None
 
     _flair_window: BlessedWindow
+    _supervisor_window: BlessedWindow
     _attacks_window: BlessedWindow
 
     _attacks_table = PrettyTable(
@@ -65,6 +68,7 @@ class GUI(Thread):
 
     _ui_drawing_time = 0
 
+    SUPERVISOR_HEIGHT = 1
     FLAIR_HEIGHT = 12
 
     def __init__(self,
@@ -79,9 +83,14 @@ class GUI(Thread):
         self._update_interval = update_interval
 
         self._flair_window = BlessedWindow(term)
-        self._flair_window.max_height = 30
+        self._flair_window.max_height = self.FLAIR_HEIGHT
+
+        self._supervisor_window = BlessedWindow(term)
+        self._supervisor_window.max_height = self.SUPERVISOR_HEIGHT
+        self._supervisor_window.pos_y = self.FLAIR_HEIGHT
+
         self._attacks_window = BlessedWindow(term)
-        self._attacks_window.pos_y = self.FLAIR_HEIGHT
+        self._attacks_window.pos_y = self.FLAIR_HEIGHT + self.SUPERVISOR_HEIGHT
 
     def run(self):
         try:
@@ -104,6 +113,7 @@ class GUI(Thread):
 
     def force_redraw(self):
         self._flair_update_interval.reset()
+        self._supervisor_update_interval.reset()
         self._attacks_update_interval.reset()
         self.redraw()
 
@@ -111,6 +121,7 @@ class GUI(Thread):
         start = time.perf_counter()
 
         self._draw_flair()
+        self._draw_supervisor()
         self._draw_attacks()
 
         self._ui_drawing_time = time.perf_counter() - start
@@ -128,6 +139,28 @@ class GUI(Thread):
         flair_text = center_text(flair_text, term)
         self._flair_window.update_content(flair_text)
         self._flair_window.redraw()
+
+    def _draw_supervisor(self):
+        if not self._supervisor_update_interval.check_if_has_passed():
+            return
+
+        supervisor = self._supervisor_state
+        s = ""
+        s += "Attack supervisor: "
+        if supervisor is None:
+            s += "Initializing..."
+        else:
+            if supervisor.is_fetching_configuration:
+                s += "Fetching targets configuration..."
+            elif supervisor.is_fetching_proxies:
+                s += "Fetching proxies configuration..."
+            else:
+                s += f"{supervisor.attack_processes_count} attack processes running."
+
+        s = term.center(s, self._supervisor_window.width)
+        s = term.black_on_gold(s)
+        self._supervisor_window.update_content(s)
+        self._supervisor_window.redraw()
 
     def _draw_attacks(self):
         if not self._attacks_update_interval.check_if_has_passed():
@@ -163,7 +196,16 @@ class GUI(Thread):
             split = s.split("\n")
             header_line = split[1]
             for i in range(1, 4):
-                split[i] = header_line[0] + term.black_on_orange(split[i][1:-1]) + header_line[-1]
+                header_split = split[i]
+                columns_split = header_split[1:-1].split(attacks_table.vertical_char)
+                new_row = ""
+                colored_vertical_char = term.orange(attacks_table.vertical_char)
+                new_row += colored_vertical_char
+                for j in range(len(columns_split)):
+                    columns_split[j] = term.black_on_orange(columns_split[j])
+                new_row += colored_vertical_char.join(columns_split)
+                new_row += colored_vertical_char
+                split[i] = new_row
             s = "\n".join(split)
 
         # self._attacks_window.max_height = term.height - self.FLAIR_HEIGHT
@@ -215,7 +257,7 @@ class GUI(Thread):
             if proxies_count > 0:
                 proxies = f"{proxies_count}\nValidating..."
             else:
-                proxies = term.bold("Not used")
+                proxies = term.orange("Not used")
 
         # target status
         target_status = "unknown"
