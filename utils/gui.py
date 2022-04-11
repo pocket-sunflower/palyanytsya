@@ -1,7 +1,7 @@
 import time
 from multiprocessing import Queue
 from threading import Thread
-from typing import List
+from typing import List, Callable
 
 from blessed import Terminal
 from prettytable import PrettyTable, ALL
@@ -9,7 +9,7 @@ from prettytable import PrettyTable, ALL
 from MHDDoS.methods.tools import Tools
 from MHDDoS.start import AttackState
 from MHDDoS.utils.misc import get_last_from_queue
-from utils.blessed_utils import BlessedWindow, center_text, print_and_flush, ScreenResizeHandler, pad_text
+from utils.blessed_utils import BlessedWindow, center_text, print_and_flush, ScreenResizeHandler, pad_text_to_itself, text_width, pad_text_to_box
 from utils.input_args import Arguments
 from utils.misc import TimeInterval
 from utils.supervisor import AttackSupervisorState
@@ -40,8 +40,8 @@ class GUI(Thread):
     """GUI thread of Palyanytsya."""
     _update_interval: float
     _flair_update_interval: TimeInterval = TimeInterval(1)
-    _supervisor_update_interval: TimeInterval = TimeInterval(0.5)
-    _attacks_update_interval: TimeInterval = TimeInterval(0.5)
+    _supervisor_update_interval: TimeInterval = TimeInterval(1)
+    _attacks_update_interval: TimeInterval = TimeInterval(1)
     _supervisor_state: AttackSupervisorState = None
 
     _flair_window: BlessedWindow
@@ -134,11 +134,43 @@ class GUI(Thread):
         if not self._flair_update_interval.check_if_has_passed():
             return
 
+        gradient = ["█", "▓", "▒", "░", " "]
+
+        flair_window = self._flair_window
+
         flair_text = get_flair_string(term)
-        flair_text = pad_text(flair_text, term)
-        flair_text = center_text(flair_text, term)
-        self._flair_window.update_content(flair_text)
-        self._flair_window.redraw()
+        flair_text_width = text_width(flair_text, term)
+        flair_text = pad_text_to_box(flair_text, flair_text_width, flair_window.height, term)
+
+        width = (flair_window.width - flair_text_width) / 2
+        step = int(width / len(gradient))
+
+        def craft_flair_side(reverse: bool, color: Callable):
+            g_list = gradient.copy()
+            if reverse:
+                g_list.reverse()
+
+            s = ""
+            for j in range(len(gradient)):
+                for k in range(step):
+                    s += g_list[j]
+            s = color(s)
+            return s
+
+        flair = []
+        flair_text_split = flair_text.split("\n")
+        flair_height = len(flair_text_split)
+        for i in range(flair_window.height):
+            color = term.blue if (i < flair_height // 2) else term.gold
+            line = craft_flair_side(False, color)
+            line += flair_text_split[i]
+            line += craft_flair_side(True, color)
+            flair.append(line)
+        flair = "\n".join(flair)
+
+        flair = center_text(flair, term)
+        flair_window.update_content(flair)
+        flair_window.redraw()
 
     def _draw_supervisor(self):
         if not self._supervisor_update_interval.check_if_has_passed():
@@ -146,7 +178,7 @@ class GUI(Thread):
 
         supervisor = self._supervisor_state
         s = ""
-        s += "Attack supervisor: "
+        # s += "Attack supervisor: "
         if supervisor is None:
             s += "Initializing..."
         else:
@@ -157,6 +189,7 @@ class GUI(Thread):
             else:
                 s += f"{supervisor.attack_processes_count} attack processes running."
 
+        s = s.upper()
         s = term.center(s, self._supervisor_window.width)
         s = term.black_on_gold(s)
         self._supervisor_window.update_content(s)
@@ -209,7 +242,7 @@ class GUI(Thread):
             s = "\n".join(split)
 
         # self._attacks_window.max_height = term.height - self.FLAIR_HEIGHT
-        s = pad_text(s, term)
+        s = pad_text_to_itself(s, term)
         s = center_text(s, term)
         self._attacks_window.update_content(s)
         self._attacks_window.redraw()

@@ -36,21 +36,21 @@ def truncate_text_to_box(text: str, width: int, height: int, term: Terminal) -> 
     return text
 
 
-def pad_text(text: str, term: Terminal):
+def pad_text_to_itself(text: str, term: Terminal):
     text_h = text_height(text)
     text_w = text_width(text, term)
-    return pad_to_box(text, text_w, text_h, term)
+    return pad_text_to_box(text, text_w, text_h, term)
 
 
-def pad_to_box(text: str,
-               width: int,
-               height: int,
-               term: Terminal,
-               fillchar: str = " ",
-               top: int = None,
-               left: int = None,
-               right: int = None,
-               bottom: int = None) -> str:
+def pad_text_to_box(text: str,
+                    width: int,
+                    height: int,
+                    term: Terminal,
+                    fillchar: str = " ",
+                    top: int = None,
+                    left: int = None,
+                    right: int = None,
+                    bottom: int = None) -> str:
     text_h = text_height(text)
     text = "\n".join([term.ljust(line, width, fillchar) for line in text.split("\n")])
     if height > text_h:
@@ -61,7 +61,7 @@ def pad_to_box(text: str,
 
 
 def wrap_text_in_border(text: str, term: Terminal):
-    text = pad_text(text, term)
+    text = pad_text_to_itself(text, term)
     text_w = text_width(text, term)
     lines = text.split("\n")
     border_top = "╭" + "─" * text_w + "╮"
@@ -75,7 +75,7 @@ def wrap_text_in_border(text: str, term: Terminal):
 def center_text(text: str, term: Terminal) -> str:
     text_h = text_height(text)
     text_w = text_width(text, term)
-    text = pad_to_box(text, text_h, text_w, term)
+    text = pad_text_to_box(text, text_h, text_w, term)
     return "\n".join([term.center(line) for line in text.split("\n")])
 
 
@@ -186,7 +186,7 @@ class BlessedWindow:
         content = self._content_buffer
         # content = "\n" + term.black_on_white(f" Window size: {self.width}x{self.height} ")
         content = truncate_text_to_box(content, c_width, c_height, self._term)
-        content = pad_to_box(content, c_width, c_height, self._term)
+        content = pad_text_to_box(content, c_width, c_height, self._term)
         content = term.on_black(content)
         if self._bordered:
             content = wrap_text_in_border(content, term)
