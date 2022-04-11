@@ -20,6 +20,7 @@ from utils.misc import TimeInterval
 class AttackSupervisorState:
     is_fetching_configuration: bool
     is_fetching_proxies: bool
+    proxies_count: int
     attack_processes_count: int
 
     attack_states: List[AttackState]
@@ -205,6 +206,7 @@ class AttackSupervisor(Thread):
             state = AttackSupervisorState(
                 is_fetching_proxies=self._is_fetching_proxies,
                 is_fetching_configuration=self._is_fetching_targets,
+                proxies_count=len(self._proxies_addresses),
                 attack_processes_count=len(self._attack_processes),
                 attack_states=sorted_attack_states,
             )

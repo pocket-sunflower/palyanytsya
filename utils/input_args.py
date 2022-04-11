@@ -86,7 +86,7 @@ def parse_command_line_args() -> Arguments:
         nargs="+",
         type=str.upper,
         default=["TCP", "GET", "POST", "STRESS"],
-        choices=Methods.LAYER7_METHODS,
+        choices=Methods.ALL_METHODS,
         help="List of MHDDoS attack methods to use. Default is TCP + GET + POST + STRESS",
     )
     parser.add_argument(

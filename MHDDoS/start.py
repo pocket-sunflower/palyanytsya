@@ -306,6 +306,7 @@ def attack(
     proxies_validation_state: ProxiesValidationState | None = None
     connectivity_state_queue = Queue()
     connectivity_state: ConnectivityState | None = None
+    post_status_update()
 
     # FIND VALID PROXIES
     validated_proxies: List[Proxy] = []
@@ -324,6 +325,7 @@ def attack(
             time.sleep(0.1)
 
             proxies_validation_state: ProxiesValidationState = get_last_from_queue(proxies_validation_state_queue)
+            post_status_update()
 
             if proxies_validation_state is not None:
                 logger.info(f"Waiting for initial proxy validation to complete ({proxies_validation_state.progress * 100:.0f}%)...")

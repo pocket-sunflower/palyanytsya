@@ -4,33 +4,10 @@ from multiprocessing import Queue
 import colorama
 from humanfriendly.terminal import *
 
-from utils.gui import GUI
+from utils.gui import GUI, get_flair_string
 from utils.input_args import parse_command_line_args
-from utils.logs import logger
-from utils.misc import print_vpn_warning, supports_complex_colors
+from utils.misc import print_vpn_warning
 from utils.supervisor import AttackSupervisor
-
-
-def get_flair_string():
-    BLUE = (0, 91, 187) if supports_complex_colors() else "blue"
-    YELLOW = (255, 213, 0) if supports_complex_colors() else "yellow"
-    GREEN = (8, 255, 8) if supports_complex_colors() else "green"
-    RED = (255, 0, 0) if supports_complex_colors() else "red"
-
-    heart = ansi_wrap("♥", color=RED)
-
-    flair_string = "\n" + \
-                   "A heavy-duty freedom-infused MHDDoS wrapper...\n" + \
-                   "\n" + \
-                   ansi_wrap("██████╗░░█████╗░██╗░░░░░██╗░░░██╗░█████╗░███╗░░██╗██╗░░░██╗████████╗░██████╗██╗░░░██╗░█████╗░\n", color=BLUE) + \
-                   ansi_wrap("██╔══██╗██╔══██╗██║░░░░░╚██╗░██╔╝██╔══██╗████╗░██║╚██╗░██╔╝╚══██╔══╝██╔════╝╚██╗░██╔╝██╔══██╗\n", color=BLUE) + \
-                   ansi_wrap("██████╔╝███████║██║░░░░░░╚████╔╝░███████║██╔██╗██║░╚████╔╝░░░░██║░░░╚█████╗░░╚████╔╝░███████║\n", color=BLUE) + \
-                   ansi_wrap("██╔═══╝░██╔══██║██║░░░░░░░╚██╔╝░░██╔══██║██║╚████║░░╚██╔╝░░░░░██║░░░░╚═══██╗░░╚██╔╝░░██╔══██║\n", color=YELLOW) + \
-                   ansi_wrap("██║░░░░░██║░░██║███████╗░░░██║░░░██║░░██║██║░╚███║░░░██║░░░░░░██║░░░██████╔╝░░░██║░░░██║░░██║\n", color=YELLOW) + \
-                   ansi_wrap("╚═╝░░░░░╚═╝░░╚═╝╚══════╝░░░╚═╝░░░╚═╝░░╚═╝╚═╝░░╚══╝░░░╚═╝░░░░░░╚═╝░░░╚═════╝░░░░╚═╝░░░╚═╝░░╚═╝\n", color=YELLOW) + \
-                   "\n" + \
-                   f"                                                                  ...from Ukraine with love {heart}\n"
-    return flair_string
 
 
 def print_flair():
@@ -40,15 +17,16 @@ def print_flair():
 
 def velyka_kara():
     print_flair()
-    print_vpn_warning()
+    # print_vpn_warning()
 
     args = parse_command_line_args()
+    # time.sleep(1)
 
     attacks_state_queue = Queue()
     supervisor_state_queue = Queue()
 
     AttackSupervisor(args, attacks_state_queue, supervisor_state_queue).start()
-    # GUI(args, attacks_state_queue, supervisor_state_queue).start()
+    GUI(args, attacks_state_queue, supervisor_state_queue).start()
 
     while True:
         time.sleep(1)
@@ -66,4 +44,4 @@ if __name__ == '__main__':
 
     colorama.deinit()
 
-    input("\nExecution finished.\nPress ENTER to exit... ")
+    # input("\nExecution finished.\nPress ENTER to exit... ")
