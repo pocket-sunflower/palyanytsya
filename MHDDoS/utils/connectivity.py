@@ -19,7 +19,6 @@ from yarl import URL
 
 from MHDDoS.methods.layer_7 import Layer7
 from MHDDoS.methods.methods import Methods
-from MHDDoS.methods.tools import Tools
 from MHDDoS.utils.targets import Target
 
 
@@ -159,10 +158,10 @@ class ConnectivityUtils:
 
 @dataclass
 class ConnectivityState:
-    connectivity_l7: Response | RequestException | None
-    connectivity_l4: Host | None
-    connectivity_l7_proxied: List[Response | RequestException]
-    connectivity_l4_proxied: List[Host]
+    layer_7: Response | RequestException | None
+    layer_4: Host | None
+    layer_7_proxied: List[Response | RequestException]
+    layer_4_proxied: List[Host]
     timestamp: float
 
 
@@ -196,10 +195,10 @@ def connectivity_check_loop(interval: float,
             timeout=10
         )
         state = ConnectivityState(
-            connectivity_l7=l7_response,
-            connectivity_l4=l4_result,
-            connectivity_l7_proxied=l7_proxied_responses,
-            connectivity_l4_proxied=l4_proxied_results,
+            layer_7=l7_response,
+            layer_4=l4_result,
+            layer_7_proxied=l7_proxied_responses,
+            layer_4_proxied=l4_proxied_results,
             timestamp=time.time()
         )
         state_queue.put(state)

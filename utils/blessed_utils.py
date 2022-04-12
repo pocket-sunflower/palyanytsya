@@ -80,11 +80,11 @@ def wrap_text_in_border(text: str,
     return bordered
 
 
-def center_text(text: str, term: Terminal) -> str:
+def center_text(text: str, term: Terminal, width: int = None) -> str:
     text_h = text_height(text)
     text_w = text_width(text, term)
     text = pad_text_to_box(text, text_h, text_w, term)
-    return "\n".join([term.center(line) for line in text.split("\n")])
+    return "\n".join([term.center(line, width) for line in text.split("\n")])
 
 
 def print_and_flush(string: str):

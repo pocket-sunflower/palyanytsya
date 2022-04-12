@@ -72,7 +72,11 @@ class AttackState:
     cpu_usage: float = None
 
     # proxies
+    total_proxies_count: int = 0
     proxy_validation_state: ProxiesValidationState | None = None
+
+    @property
+    def is_using_proxies(self): return self.total_proxies_count > 0
 
     # connectivity
     connectivity_state: ConnectivityState | None = None
@@ -350,6 +354,7 @@ def _attack(
             active_threads_count=get_running_threads_count(),
             cpu_usage=cpu_usage,
 
+            total_proxies_count=len(proxies),
             proxy_validation_state=proxies_validation_state,
             connectivity_state=connectivity_state,
 

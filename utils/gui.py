@@ -6,7 +6,9 @@ from typing import Callable
 
 from blessed import Terminal
 from blessed.keyboard import Keystroke
+from icmplib import Host
 from prettytable import PrettyTable, ALL
+from requests import Response, RequestException
 
 from MHDDoS.methods.tools import Tools
 from MHDDoS.start import AttackState
@@ -130,11 +132,13 @@ class GUI(Thread):
                     self._update_supervisor_state()
                     self.redraw()
                     time.sleep(self._update_interval)
-            except (Exception, KeyboardInterrupt, SystemExit) as e:
+            except Exception as e:
                 print_and_flush(term.clear)
                 print_and_flush(pad_text_to_box("", term.width, term.height, term))
                 print_and_flush(term.black_on_red(e))
-                raise e
+                # raise e
+            except (KeyboardInterrupt, SystemExit):
+                pass
 
     def _update_supervisor_state(self):
         new_state = get_last_from_queue(self._supervisor_state_queue)
@@ -187,8 +191,8 @@ class GUI(Thread):
 
         # if self._ui_update_interval.check_if_has_passed():
 
-        with term.location(0, term.height):
-            print_and_flush(term.black_on_red(f" {self._is_in_target_status_view} "))
+        # with term.location(0, term.height):
+        #     print_and_flush(term.black_on_red(f" {self._is_in_target_status_view} "))
 
         term.move_xy(term.width, term.height)
 
@@ -267,31 +271,68 @@ class GUI(Thread):
         attacks_table = self._attacks_table
         attacks_table.clear()
 
-        s = ""
+        window = self._attacks_window
+        window.clear_content()
 
         if self._supervisor_state is None:
-            s = "Waiting for supervisor to initialize..."
+            s = " Waiting for supervisor to initialize... "
             s = wrap_text_in_border(s, term)
+            window.add_content(s)
         elif not self._is_attacks_info_available:
-            s = "Waiting for attack processes to start..."
+            s = " Waiting for attack processes to start... "
             s = wrap_text_in_border(s, term)
+            window.add_content(s)
         else:
-            self._add_header_to_attack_state_table(attacks_table)
+            # header
+            # header = f"OVERVIEW: {self._supervisor_state.attack_processes_count} ATTACKS RUNNING"
+            # header = f" {header} "
+            # header = wrap_text_in_border(header, term)
+            header = self._get_header()
+            window.add_content(header)
 
+            # table
+            self._add_header_to_attack_state_table(attacks_table)
             for attack in self._supervisor_state.attack_states:
                 self._add_attack_row_to_attack_state_table(attacks_table, attack)
-
-            table_string: str = attacks_table.get_string()
+            table_string = attacks_table.get_string()
             table_string = self.color_table_header(attacks_table, table_string)
             table_string = self._highlight_table_row(self._selected_attack_index, attacks_table, table_string)
+            window.add_content(table_string)
 
-            s += table_string
+        window.center_content()
+        window.redraw()
 
-        # self._attacks_window.max_height = term.height - self.FLAIR_HEIGHT
-        s = pad_text_to_itself(s, term)
-        s = center_text(s, term)
-        self._attacks_window.set_content(s)
-        self._attacks_window.redraw()
+    def _get_header(self) -> str:
+        inactive_color = term.gray30
+
+        # OVERVIEW HEADER
+        header_o = f"OVERVIEW"
+        if self._is_in_attacks_view:
+            header_o += f": {self._supervisor_state.attack_processes_count} ATTACKS RUNNING"
+        header_o = f" {header_o} "
+        header_o = wrap_text_in_border(header_o, term)
+        if not self._is_in_attacks_view:
+            header_o = "\n".join(inactive_color(line) for line in header_o.split("\n"))
+
+        # DETAILS HEADER
+        index = self._selected_attack_index
+        header_d = f"DETAILS"
+        if self._is_in_target_status_view:
+            header_d += f": ATTACK {index + 1}/{self._supervisor_state.attack_processes_count}"
+        header_d = f" {header_d} "
+        header_d = wrap_text_in_border(header_d, term)
+        if not self._is_in_target_status_view:
+            header_d = "\n".join(inactive_color(line) for line in header_d.split("\n"))
+
+        # JOIN HEADERS
+        header_o_split = header_o.split("\n")
+        header_d_split = header_d.split("\n")
+        header = []
+        for i in range(len(header_o_split)):
+            header.append(header_o_split[i] + " " + header_d_split[i])
+        header = "\n".join(header)
+
+        return header
 
     def _draw_target_status(self):
         if self._supervisor_state is None:
@@ -304,14 +345,32 @@ class GUI(Thread):
         attack_state = self._supervisor_state.attack_states[self._selected_attack_index]
 
         window = self._target_status_window
-
         window.clear_content()
 
-        s = ""
+        # HEADER
+        index = self._selected_attack_index
+        # header = f" ATTACK DETAILS {index + 1}/{self._supervisor_state.attack_processes_count} "
+        # header = wrap_text_in_border(header, term)
+        header = self._get_header()
+        window.add_content(header)
 
-        s += f"{attack_state.target}"
+        # ATTACK INFO
+        table = self._attacks_table
+        table.clear()
+        self._add_header_to_attack_state_table(table)
+        self._add_attack_row_to_attack_state_table(table, attack_state)
+        table_string = table.get_string()
+        table_string = self.color_table_header(table, table_string)
+        window.add_content(table_string)
 
-        window.set_content(s)
+        # CONNECTIVITY INFO
+        table.clear()
+        self._add_header_to_connectivity_table(table)
+        self._add_rows_to_connectivity_table(table)
+        table_string = table.get_string()
+        table_string = self.color_table_header(table, table_string, term.black_on_cyan)
+        window.add_content(table_string)
+
         window.center_content()
         window.redraw()
 
@@ -319,7 +378,7 @@ class GUI(Thread):
 
         window = self._nav_tips_window
 
-        color = term.white_on_black
+        color = term.black_on_yellow
         up = color("UP")
         down = color("DOWN")
         left = color("LEFT")
@@ -336,7 +395,6 @@ class GUI(Thread):
 
     def _add_header_to_attack_state_table(self, table: PrettyTable) -> None:
         attacks_table_columns = [
-            # "*",
             "\nTarget",
             "\nMethods",
             "\nTarget\nStatus",
@@ -350,7 +408,7 @@ class GUI(Thread):
 
     def _add_attack_row_to_attack_state_table(self, table: PrettyTable, attack: AttackState) -> None:
         # target status
-        target_status = "unknown"
+        target_status = "unknown"  # TODO: set this according to connectivity
 
         # methods
         if attack.attack_methods is None:
@@ -397,7 +455,6 @@ class GUI(Thread):
                 proxies = term.orange("Not used")
 
         row_entries = [
-            # " > ",
             attack.target,
             attack_methods_string,
             target_status,
@@ -434,13 +491,80 @@ class GUI(Thread):
 
     # TARGET STATUS VIEW
 
+    def _add_header_to_connectivity_table(self, table: PrettyTable) -> None:
+        connectivity_table_columns = [
+            "Proxy",
+            "Layer 4",
+            "Layer 7",
+        ]
+        table.add_row(connectivity_table_columns)
+
+    def _add_rows_to_connectivity_table(self, table: PrettyTable) -> None:
+        attack_state = self._supervisor_state.attack_states[self._selected_attack_index]
+        connectivity = attack_state.connectivity_state
+        if connectivity is None:
+            return
+
+        def get_connectivity_string_l4(layer_4: Host | None) -> str:
+            if layer_4 is None:
+                return term.grey(f"UNKNOWN")
+            elif layer_4.is_alive:
+                successful_pings_ratio = float(layer_4.packets_sent) / layer_4.packets_received
+                if successful_pings_ratio > 0.5:
+                    return term.green(f"REACHABLE\n"
+                                      f"Ping {layer_4.avg_rtt:.0f} ms\n"
+                                      f"No packets lost")
+                else:
+                    return term.yellow(f"PARTIALLY REACHABLE\n"
+                                       f"Ping {layer_4.avg_rtt:.0f} ms\n"
+                                       f"{layer_4.packet_loss * 100:.0f}% packet loss")
+            else:
+                return term.red(f"UNREACHABLE")
+
+        def get_connectivity_string_l7(layer_7: Response | RequestException) -> str:
+            if isinstance(layer_7, Response):
+                response: Response = layer_7
+                is_down = response.status_code >= 500
+                is_ok = response.status_code == 200
+
+                # pick color based on state
+                if is_ok:
+                    color = term.green
+                elif is_down:
+                    color = term.red
+                else:
+                    color = term.yellow
+
+                return color(f"{response.status_code}: {response.reason}")
+            elif isinstance(layer_7, RequestException):
+                exception: RequestException = layer_7
+                return term.red(f"{type(exception).__name__}")
+            else:
+                return term.grey(f"UNKNOWN")
+
+        if not attack_state.is_using_proxies:
+            row = [
+                term.grey("DIRECT\n(no proxy)"),
+                get_connectivity_string_l4(connectivity.layer_4),
+                get_connectivity_string_l7(connectivity.layer_7),
+            ]
+            table.add_row(row)
+        else:
+            for i in range(len(connectivity.layer_4_proxied)):
+                row = [
+                    term.grey(f"Proxy {i + 1}"),
+                    get_connectivity_string_l4(connectivity.layer_4_proxied[i]),
+                    get_connectivity_string_l7(connectivity.layer_7_proxied[i]),
+                ]
+                table.add_row(row)
+
     @staticmethod
     def color_table_header(table: PrettyTable,
                            table_string: str,
                            color: Callable[[str], str] = term.black_on_orange) -> str:
         split = table_string.split("\n")
-        header_line = split[1]
-        for i in range(1, 4):
+        header_height = len(table_string.split(table.left_junction_char)[0].split("\n"))
+        for i in range(1, header_height - 1):
             header_split = split[i]
             columns_split = header_split[1:-1].split(table.vertical_char)
             new_row = ""
