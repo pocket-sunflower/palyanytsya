@@ -14,6 +14,7 @@ class Arguments(BaseModel):
     proxies: str = Field(default=None)
     proxies_validation_timeout: float = Field(default=3)
     proxies_fetch_interval: float = Field(default=600)
+    no_gui: bool = Field(default=False)
 
 
 def parse_command_line_args() -> Arguments:
@@ -105,6 +106,12 @@ def parse_command_line_args() -> Arguments:
         type=float,
         default=600,
         help="How often to fetch the proxies (in seconds) (default is 600)",
+    )
+    parser.add_argument(
+        "--no-gui",
+        action="store_true",
+        default=False,
+        help="Disable the GUI and display live logs from all processes instead",
     )
     # parser.add_argument(
     #     "--itarmy",

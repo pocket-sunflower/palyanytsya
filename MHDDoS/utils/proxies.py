@@ -17,9 +17,9 @@ from requests import ReadTimeout, get
 
 from MHDDoS.utils.config_files import read_configuration_file_lines
 from MHDDoS.utils.connectivity import ConnectivityUtils
-from MHDDoS.utils.logs import CyclicPeriods
 from MHDDoS.utils.misc import Counter
 from MHDDoS.utils.targets import Target
+from MHDDoS.utils.text import CyclicPeriods
 
 logger = logging.getLogger()
 

@@ -12,7 +12,7 @@ from MHDDoS.utils.config_files import read_configuration_file_lines
 from MHDDoS.utils.proxies import load_proxies
 from MHDDoS.utils.targets import Target
 from utils.input_args import Arguments
-from utils.logs import logger
+from utils.logs import get_logger_for_current_process
 from utils.misc import TimeInterval
 
 
@@ -32,6 +32,7 @@ class AttackSupervisor(Thread):
     _args: Arguments
     _attacks_state_queue: Queue
     _supervisor_state_queue: Queue
+    _logging_queue: Queue
 
     _targets: List[Target] = []
     _proxies_addresses: List[str] = []
@@ -50,8 +51,13 @@ class AttackSupervisor(Thread):
     def __init__(self,
                  args: Arguments,
                  attacks_state_queue: Queue,
-                 supervisor_state_queue: Queue):
+                 supervisor_state_queue: Queue,
+                 logging_queue: Queue):
         Thread.__init__(self, daemon=True, name="Supervisor")
+
+        global logger
+        logger = get_logger_for_current_process(logging_queue, "SUPERVISOR")
+        self._logging_queue = logging_queue
 
         self._args = args
         self._attacks_state_queue = attacks_state_queue
@@ -103,7 +109,7 @@ class AttackSupervisor(Thread):
             target = Target.parse_from_string(target_string)
             if not target:
                 continue
-            elif target.is_valid():
+            elif target.is_valid:
                 new_targets.append(target)
                 logger.info(f"Fetched target: '{target}'")
             else:
@@ -171,17 +177,17 @@ class AttackSupervisor(Thread):
 
         # launch attack process for every target
         for i, target in enumerate(self._targets):
-            attack_method = "TCP"  # TODO: support multiple attack methods!
             attack_process = Process(
                 target=attack,
                 kwargs={
                     "target": target,
-                    "attack_method": attack_method,
+                    "attack_methods": self._args.attack_methods,
                     "proxies_file_path": self._args.proxies,
                     "attack_state_queue": self._attacks_state_queue,
+                    "logging_queue": self._logging_queue,
                 },
                 daemon=True,
-                name=f"ATTACK_{i}"
+                name=f"ATTACK_{i + 1}"
             )
             self._attack_processes.append(attack_process)
             attack_process.start()
@@ -237,4 +243,3 @@ class AttackSupervisor(Thread):
         list_a.sort()
         list_b.sort()
         return list_a == list_b
-

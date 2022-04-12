@@ -377,7 +377,7 @@ class Tools:
                 [abs(num / 1000.0 ** x) >= 1 for x in range(1, len(suffixes))])
             return f'{num / 1000.0 ** obje:.{precision}f}{suffixes[obje]}'
         else:
-            return num
+            return f"{num:.{precision}f}"
 
     @staticmethod
     def sizeOfRequest(res: Response) -> int:

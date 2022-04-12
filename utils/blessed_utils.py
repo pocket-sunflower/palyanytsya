@@ -1,8 +1,9 @@
 import time
 from threading import Thread
-from typing import Callable
+from typing import Callable, Dict
 
 from blessed import Terminal
+from blessed.keyboard import Keystroke
 
 
 def text_width(text: str, term: Terminal) -> int:
@@ -60,15 +61,22 @@ def pad_text_to_box(text: str,
     return text
 
 
-def wrap_text_in_border(text: str, term: Terminal):
+def wrap_text_in_border(text: str,
+                        term: Terminal,
+                        vertical_char="│",
+                        horizontal_char="─",
+                        top_left_char="╭",
+                        top_right_char="╮",
+                        bottom_left_char="╰",
+                        bottom_right_char="╯"):
     text = pad_text_to_itself(text, term)
     text_w = text_width(text, term)
     lines = text.split("\n")
-    border_top = "╭" + "─" * text_w + "╮"
+    border_top = top_left_char + horizontal_char * text_w + top_right_char
     for i in range(len(lines)):
-        lines[i] = "│" + lines[i] + "│"
-    border_bottom = "╰" + "─" * text_w + "╯"
-    bordered = border_top + "\n" + "\n".join(lines) + border_bottom
+        lines[i] = vertical_char + lines[i] + vertical_char
+    border_bottom = bottom_left_char + horizontal_char * text_w + bottom_right_char
+    bordered = border_top + "\n" + "\n".join(lines) + "\n" + border_bottom
     return bordered
 
 
@@ -85,6 +93,48 @@ def print_and_flush(string: str):
 
 def clear_screen(term: Terminal):
     print_and_flush(term.home + term.clear)
+
+
+class KeyboardListener:
+    """Provides a way to capture key presses in terminal."""
+    _term: Terminal
+    _on_press_callback: Callable[[Keystroke], None]
+
+    _timeout: float = 0.01
+    _last_key_presses: Dict[str, float] = {}
+    _same_key_interval: float = 0.1
+
+    def __init__(self, term: Terminal, on_key_callback: Callable[[Keystroke], None]):
+        self._term = term
+        self._on_press_callback = on_key_callback
+
+        self._reader_thread = Thread(target=self._key_reader, daemon=True)
+        self._reader_thread.start()
+
+    def _key_reader(self):
+        term = self._term
+
+        try:
+            with term.cbreak():
+                while True:
+                    key: Keystroke = term.inkey()
+
+                    if key is None:
+                        continue
+
+                    # respect the interval if the key has been recently pressed
+                    key_id = key.name if key.is_sequence else key
+                    time_since_last_callback = time.perf_counter() - self._last_key_presses.get(key_id, 0)
+                    if time_since_last_callback < self._same_key_interval:
+                        continue
+
+                    self._last_key_presses[key_id] = time.perf_counter()
+
+                    self._on_press_callback(key)
+        except Exception:
+            pass
+        except (KeyboardInterrupt, SystemExit):
+            pass
 
 
 class ScreenResizeHandler:
@@ -140,16 +190,14 @@ class BlessedWindow:
     pos_y: int = 0
     max_height: int = None
     max_width: int = None
+    has_borders: bool = False
+    background_color: Callable[[str], str] = None
 
     _term: Terminal
-    _bordered: bool
     _content_buffer: str = ""
 
-    def __init__(self,
-                 term: Terminal,
-                 bordered: bool = False):
+    def __init__(self, term: Terminal):
         self._term = term
-        self._bordered = bordered
 
     @property
     def height(self):
@@ -171,25 +219,39 @@ class BlessedWindow:
         else:
             return max_width
 
-    def update_content(self, string: str):
+    def clear_content(self):
+        self._content_buffer = ""
+
+    def set_content(self, string: str):
         self._content_buffer = string
+
+    def add_content(self, string: str):
+        string = pad_text_to_itself(string, self._term)
+        if len(self._content_buffer) > 0:
+            self._content_buffer += "\n"
+        self._content_buffer += string
+
+    def center_content(self):
+        self._content_buffer = center_text(self._content_buffer, self._term)
 
     def redraw(self):
         term = self._term
 
-        c_width = self.width
-        c_height = self.height
-        if self._bordered:
-            c_width -= 2
-            c_height -= 2
+        # compute window dimensions
+        width = self.width
+        height = self.height
+        if self.has_borders:
+            width -= 2
+            height -= 2
 
+        # crop content to fit in window
         content = self._content_buffer
-        # content = "\n" + term.black_on_white(f" Window size: {self.width}x{self.height} ")
-        content = truncate_text_to_box(content, c_width, c_height, self._term)
-        content = pad_text_to_box(content, c_width, c_height, self._term)
-        content = term.on_black(content)
-        if self._bordered:
+        content = truncate_text_to_box(content, width, height, self._term)
+        content = pad_text_to_box(content, width, height, self._term)
+        if self.has_borders:
             content = wrap_text_in_border(content, term)
+        if self.background_color is not None:
+            content = self.background_color(content)
 
         with term.location(self.pos_x, self.pos_y):
             print_and_flush(content)

