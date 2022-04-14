@@ -81,6 +81,10 @@ class AttackState:
     # connectivity
     connectivity_state: ConnectivityState | None = None
 
+    @property
+    def has_connectivity_data(self):
+        return self.connectivity_state is not None
+
     # throughput
     total_requests_sent: int = None
     requests_per_second: int = None
@@ -434,7 +438,9 @@ def _attack(
 
         # poll queues
         proxies_validation_state = get_last_from_queue(proxies_validation_state_queue)
-        connectivity_state = get_last_from_queue(connectivity_state_queue)
+        new_connectivity_state = get_last_from_queue(connectivity_state_queue)
+        if new_connectivity_state:
+            connectivity_state = new_connectivity_state
 
         # update counters
         previous_pps = pps

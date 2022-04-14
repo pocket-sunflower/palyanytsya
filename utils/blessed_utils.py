@@ -37,6 +37,14 @@ def truncate_text_to_box(text: str, width: int, height: int, term: Terminal) -> 
     return text
 
 
+def color_text(text: str, color: Callable[[str], str] | None) -> str:
+    if color is None:
+        return text
+
+    text = "\n".join([color(m) for m in text.split("\n")])
+    return text
+
+
 def pad_text_to_itself(text: str, term: Terminal):
     text_h = text_height(text)
     text_w = text_width(text, term)
@@ -219,6 +227,20 @@ class BlessedWindow:
         else:
             return max_width
 
+    @property
+    def width_for_content(self):
+        width = self.width
+        if self.has_borders:
+            width -= 2
+        return width
+
+    @property
+    def height_for_content(self):
+        height = self.height
+        if self.has_borders:
+            height -= 2
+        return height
+
     def clear_content(self):
         self._content_buffer = ""
 
@@ -232,17 +254,14 @@ class BlessedWindow:
         self._content_buffer += string
 
     def center_content(self):
-        self._content_buffer = center_text(self._content_buffer, self._term)
+        self._content_buffer = center_text(self._content_buffer, self._term, self.width_for_content)
 
     def redraw(self):
         term = self._term
 
-        # compute window dimensions
-        width = self.width
-        height = self.height
-        if self.has_borders:
-            width -= 2
-            height -= 2
+        # compute content dimensions
+        width = self.width_for_content
+        height = self.height_for_content
 
         # crop content to fit in window
         content = self._content_buffer

@@ -1,7 +1,9 @@
 """
 Implementations of utilities for checking target's health on layers 4 and 7.
 """
+from __future__ import annotations
 
+import enum
 import itertools
 import time
 from _socket import IPPROTO_TCP, SHUT_RDWR
@@ -156,6 +158,66 @@ class ConnectivityUtils:
         return layer_7_response, layer_7_proxied_responses
 
 
+class Connectivity(enum.IntEnum):
+    UNKNOWN = -2
+    UNREACHABLE = -1
+    UNRESPONSIVE = 0
+    PARTIALLY_REACHABLE = 1
+    REACHABLE = 2
+
+    def __bool__(self):
+        return self.value > 0
+
+    @staticmethod
+    def get_for_layer_4(layer_4: Host | None) -> Connectivity:
+        if layer_4 is None:
+            return Connectivity.UNKNOWN
+        elif layer_4.is_alive:
+            successful_pings_ratio = float(layer_4.packets_sent) / layer_4.packets_received
+            if successful_pings_ratio >= 0.9:
+                return Connectivity.REACHABLE
+            else:
+                return Connectivity.PARTIALLY_REACHABLE
+        else:
+            return Connectivity.UNREACHABLE
+
+    @staticmethod
+    def get_for_layer_4_proxied(layer_4_proxied: List[Host | None] | None) -> Connectivity:
+        if layer_4_proxied is None:
+            return Connectivity.UNKNOWN
+
+        all_connectivities = [Connectivity.get_for_layer_4(r) for r in layer_4_proxied]
+        best_connectivity = max(all_connectivities)
+        return best_connectivity
+
+    @staticmethod
+    def get_for_layer_7(layer_7: Response | RequestException | None) -> Connectivity:
+        if isinstance(layer_7, Response):
+            response: Response = layer_7
+            if response.status_code == 200:
+                return Connectivity.REACHABLE
+            elif response.status_code >= 500:
+                return Connectivity.UNRESPONSIVE
+            else:
+                return Connectivity.PARTIALLY_REACHABLE
+
+        elif isinstance(layer_7, RequestException):
+            exception: RequestException = layer_7
+            return Connectivity.UNREACHABLE
+
+        else:
+            return Connectivity.UNKNOWN
+
+    @staticmethod
+    def get_for_layer_7_proxied(layer_7_proxied: List[Response | RequestException | None] | None) -> Connectivity:
+        if layer_7_proxied is None:
+            return Connectivity.UNKNOWN
+
+        all_connectivities = [Connectivity.get_for_layer_7(r) for r in layer_7_proxied]
+        best_connectivity = max(all_connectivities)
+        return best_connectivity
+
+
 @dataclass
 class ConnectivityState:
     layer_7: Response | RequestException | None
@@ -163,6 +225,16 @@ class ConnectivityState:
     layer_7_proxied: List[Response | RequestException]
     layer_4_proxied: List[Host]
     timestamp: float
+
+    def __post_init__(self):
+        self.connectivity_l4: Connectivity = max(
+            Connectivity.get_for_layer_4(self.layer_4),
+            Connectivity.get_for_layer_4_proxied(self.layer_4_proxied)
+        )
+        self.connectivity_l7: Connectivity = max(
+            Connectivity.get_for_layer_7(self.layer_7),
+            Connectivity.get_for_layer_7_proxied(self.layer_7_proxied)
+        )
 
 
 def connectivity_check_loop(interval: float,

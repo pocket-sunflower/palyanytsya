@@ -54,6 +54,7 @@ def read_configuration_file_lines(file_path_or_url: str, include_unique_only: bo
     """
 
     file_text = read_configuration_file_text(file_path_or_url)
+    print(f"AAAAAAAAAAAAAAAAAAAAAAAA {file_text}")
     if file_text is None:
         exit(f"Requested configuration file doesn't exist ('{file_path_or_url}').")
     if not file_text:

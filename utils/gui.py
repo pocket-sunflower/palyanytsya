@@ -12,8 +12,10 @@ from requests import Response, RequestException
 
 from MHDDoS.methods.tools import Tools
 from MHDDoS.start import AttackState
+from MHDDoS.utils.connectivity import Connectivity, ConnectivityState
 from MHDDoS.utils.misc import get_last_from_queue
-from utils.blessed_utils import BlessedWindow, center_text, print_and_flush, ScreenResizeHandler, pad_text_to_itself, text_width, pad_text_to_box, KeyboardListener, wrap_text_in_border
+from MHDDoS.utils.targets import Target
+from utils.blessed_utils import BlessedWindow, center_text, print_and_flush, ScreenResizeHandler, pad_text_to_itself, text_width, pad_text_to_box, KeyboardListener, wrap_text_in_border, color_text
 from utils.input_args import Arguments
 from utils.logs import get_logger_for_current_process
 from utils.misc import TimeInterval
@@ -63,6 +65,7 @@ class GUI(Thread):
 
     SUPERVISOR_HEIGHT = 1
     FLAIR_HEIGHT = 12
+    MAX_GUI_WIDTH = 150
 
     _attacks_table = PrettyTable(
         hrules=ALL,
@@ -104,23 +107,32 @@ class GUI(Thread):
 
         # WINDOWS
 
-        self._flair_window = BlessedWindow(term)
-        self._flair_window.max_height = self.FLAIR_HEIGHT
+        window = BlessedWindow(term)
+        window.max_height = self.FLAIR_HEIGHT
+        window.max_width = self.MAX_GUI_WIDTH
+        self._flair_window = window
 
-        self._supervisor_window = BlessedWindow(term)
-        self._supervisor_window.max_height = self.SUPERVISOR_HEIGHT
-        self._supervisor_window.pos_y = self.FLAIR_HEIGHT
+        window = BlessedWindow(term)
+        window.pos_y = self.FLAIR_HEIGHT
+        window.max_height = self.SUPERVISOR_HEIGHT
+        window.max_width = self.MAX_GUI_WIDTH
+        self._supervisor_window = window
 
-        self._target_status_window = BlessedWindow(term)
-        self._target_status_window.pos_y = self.FLAIR_HEIGHT + self.SUPERVISOR_HEIGHT
+        window = BlessedWindow(term)
+        window.pos_y = self.FLAIR_HEIGHT + self.SUPERVISOR_HEIGHT
+        window.max_width = self.MAX_GUI_WIDTH
+        self._target_status_window = window
 
-        self._attacks_window = BlessedWindow(term)
-        self._attacks_window.pos_y = self.FLAIR_HEIGHT + self.SUPERVISOR_HEIGHT
+        window = BlessedWindow(term)
+        window.pos_y = self.FLAIR_HEIGHT + self.SUPERVISOR_HEIGHT
+        window.max_width = self.MAX_GUI_WIDTH
+        self._attacks_window = window
 
-        self._nav_tips_window = BlessedWindow(term)
-        # self._nav_tips_window.background_color = term.black_on_orange
-        self._nav_tips_window.max_height = 1
-        self._nav_tips_window.pos_y = term.height - 2
+        window = BlessedWindow(term)
+        window.pos_y = term.height - 2
+        window.max_height = 1
+        window.max_width = self.MAX_GUI_WIDTH
+        self._nav_tips_window = window
 
     def run(self):
         with term.fullscreen(), term.cbreak(), term.hidden_cursor():
@@ -151,7 +163,8 @@ class GUI(Thread):
     def _is_attacks_info_available(self) -> bool:
         if self._supervisor_state is None:
             return False
-        if self._supervisor_state.attack_states is None:
+        attack_states = self._supervisor_state.attack_states
+        if (attack_states is None) or (len(attack_states) == 0):
             return False
         return True
 
@@ -199,14 +212,15 @@ class GUI(Thread):
     def _draw_flair(self):
         gradient = ["█", "▓", "▒", "░", " "]
 
-        flair_window = self._flair_window
+        window = self._flair_window
+        window.clear_content()
 
         flair_text = get_flair_string(term)
         flair_text_width = text_width(flair_text, term)
-        flair_text = pad_text_to_box(flair_text, flair_text_width, flair_window.height, term)
+        flair_text = pad_text_to_box(flair_text, flair_text_width, window.height, term)
 
         gradient_steps_count = len(gradient)
-        non_flair_text_width = flair_window.width - flair_text_width
+        non_flair_text_width = window.width - flair_text_width
         left_side_width = int(math.floor(non_flair_text_width / 2))
         right_side_width = int(math.ceil(non_flair_text_width / 2))
         step = int(right_side_width / gradient_steps_count)
@@ -234,7 +248,7 @@ class GUI(Thread):
         flair = []
         flair_text_split = flair_text.split("\n")
         flair_height = len(flair_text_split)
-        for i in range(flair_window.height):
+        for i in range(window.height):
             color = term.blue if (i < flair_height // 2) else term.gold
             line = craft_flair_side(True, color)
             line += flair_text_split[i]
@@ -242,10 +256,9 @@ class GUI(Thread):
             flair.append(line)
         flair = "\n".join(flair)
 
-        flair = center_text(flair, term)
-        flair_window.clear_content()
-        flair_window.add_content(flair)
-        flair_window.redraw()
+        window.add_content(flair)
+        window.center_content()
+        window.redraw()
 
     def _draw_supervisor(self):
         supervisor = self._supervisor_state
@@ -295,8 +308,8 @@ class GUI(Thread):
             for attack in self._supervisor_state.attack_states:
                 self._add_attack_row_to_attack_state_table(attacks_table, attack)
             table_string = attacks_table.get_string()
-            table_string = self.color_table_header(attacks_table, table_string)
-            table_string = self._highlight_table_row(self._selected_attack_index, attacks_table, table_string)
+            table_string = self._color_table_row(0, attacks_table, table_string, term.black_on_orange, term.orange)
+            table_string = self._color_table_row(1 + self._selected_attack_index, attacks_table, table_string, None, term.black_on_bright_white)
             window.add_content(table_string)
 
         window.center_content()
@@ -308,11 +321,14 @@ class GUI(Thread):
         # OVERVIEW HEADER
         header_o = f"OVERVIEW"
         if self._is_in_attacks_view:
-            header_o += f": {self._supervisor_state.attack_processes_count} ATTACKS RUNNING"
+            if self._is_attacks_info_available:
+                header_o += f": {self._supervisor_state.attack_processes_count} ATTACKS RUNNING"
+            else:
+                header_o += ": NO ATTACKS RUNNING"
         header_o = f" {header_o} "
         header_o = wrap_text_in_border(header_o, term)
         if not self._is_in_attacks_view:
-            header_o = "\n".join(inactive_color(line) for line in header_o.split("\n"))
+            header_o = color_text(header_o, inactive_color)
 
         # DETAILS HEADER
         index = self._selected_attack_index
@@ -322,7 +338,7 @@ class GUI(Thread):
         header_d = f" {header_d} "
         header_d = wrap_text_in_border(header_d, term)
         if not self._is_in_target_status_view:
-            header_d = "\n".join(inactive_color(line) for line in header_d.split("\n"))
+            header_d = color_text(header_d, inactive_color)
 
         # JOIN HEADERS
         header_o_split = header_o.split("\n")
@@ -360,7 +376,7 @@ class GUI(Thread):
         self._add_header_to_attack_state_table(table)
         self._add_attack_row_to_attack_state_table(table, attack_state)
         table_string = table.get_string()
-        table_string = self.color_table_header(table, table_string)
+        table_string = self._color_table_row(0, table, table_string, term.black_on_orange, term.orange)
         window.add_content(table_string)
 
         # CONNECTIVITY INFO
@@ -368,7 +384,7 @@ class GUI(Thread):
         self._add_header_to_connectivity_table(table)
         self._add_rows_to_connectivity_table(table)
         table_string = table.get_string()
-        table_string = self.color_table_header(table, table_string, term.black_on_cyan)
+        table_string = self._color_table_row(0, table, table_string, term.black_on_cyan, term.cyan)
         window.add_content(table_string)
 
         window.center_content()
@@ -396,28 +412,33 @@ class GUI(Thread):
     def _add_header_to_attack_state_table(self, table: PrettyTable) -> None:
         attacks_table_columns = [
             "\nTarget",
+            "\nConnectivity",
             "\nMethods",
-            "\nTarget\nStatus",
+            "\nProxies",
             "\nRequests/s\n(total)",
             "\nBytes/s\n(total)",
-            "\nProxies",
-            "\nPID",
+            # "\nPID",
             "\nThreads",
         ]
         table.add_row(attacks_table_columns)
 
     def _add_attack_row_to_attack_state_table(self, table: PrettyTable, attack: AttackState) -> None:
         # target status
-        target_status = "unknown"  # TODO: set this according to connectivity
+        if attack.has_connectivity_data:
+            target_status_string = self._get_concise_target_connectivity_string(attack.target, attack.connectivity_state)
+        else:
+            target_status_string = "Checking..."  # TODO: set this according to connectivity
 
         # methods
         if attack.attack_methods is None:
-            attack_methods_string = term.grey("Validating...")
+            attack_methods_string = term.webgray("Validating...")
         elif len(attack.attack_methods) == 0:
-            attack_methods_string = term.red("0 (no valid \n"
-                                             "methods found)")
+            attack_methods_string = "0 (no valid \n" \
+                                    "methods found)"
+            attack_methods_string = color_text(attack_methods_string, term.red)
         else:
-            attack_methods_string = "\n".join([term.cyan(m) for m in attack.attack_methods])
+            attack_methods_string = "\n".join(attack.attack_methods)
+            attack_methods_string = color_text(attack_methods_string, term.cyan)
 
         # requests
         rps = f"{Tools.humanformat(attack.requests_per_second)} r/s"
@@ -456,12 +477,12 @@ class GUI(Thread):
 
         row_entries = [
             attack.target,
+            target_status_string,
             attack_methods_string,
-            target_status,
+            proxies,
             requests_string,
             bytes_string,
-            proxies,
-            attack.attack_pid,
+            # attack.attack_pid,
             attack.active_threads_count,
         ]
 
@@ -489,6 +510,48 @@ class GUI(Thread):
         #
         # return s
 
+    @staticmethod
+    def _get_concise_target_connectivity_string(target: Target,
+                                                connectivity_state: ConnectivityState) -> str:
+        c = Connectivity.UNKNOWN
+
+        if target.is_layer_4:
+            c = connectivity_state.connectivity_l4
+        elif target.is_layer_7:
+            c = connectivity_state.connectivity_l7
+
+        color = GUI._get_term_color_for_connectivity(c)
+
+        if c == Connectivity.UNREACHABLE:
+            s = "Unreachable\n(may be down)"
+        elif c == Connectivity.UNRESPONSIVE:
+            s = "Unresponsive\n(may be down)"
+        elif c == Connectivity.PARTIALLY_REACHABLE:
+            s = "Partially\nreachable \n(suffering)"
+        elif c == Connectivity.REACHABLE:
+            s = "Reachable"
+        else:
+            s = "Unknown"
+
+        s = color_text(s, color)
+
+        return color(s)
+
+    @staticmethod
+    def _get_term_color_for_connectivity(c: Connectivity) -> Callable[[str], str]:
+        if c == Connectivity.UNKNOWN:
+            return term.webgray
+        elif c == Connectivity.UNREACHABLE:
+            return term.red3
+        elif c == Connectivity.UNRESPONSIVE:
+            return term.red
+        elif c == Connectivity.PARTIALLY_REACHABLE:
+            return term.yellow
+        elif c == Connectivity.REACHABLE:
+            return term.green
+
+        return term.white
+
     # TARGET STATUS VIEW
 
     def _add_header_to_connectivity_table(self, table: PrettyTable) -> None:
@@ -506,45 +569,66 @@ class GUI(Thread):
             return
 
         def get_connectivity_string_l4(layer_4: Host | None) -> str:
-            if layer_4 is None:
-                return term.grey(f"UNKNOWN")
-            elif layer_4.is_alive:
-                successful_pings_ratio = float(layer_4.packets_sent) / layer_4.packets_received
-                if successful_pings_ratio > 0.5:
-                    return term.green(f"REACHABLE\n"
-                                      f"Ping {layer_4.avg_rtt:.0f} ms\n"
-                                      f"No packets lost")
-                else:
-                    return term.yellow(f"PARTIALLY REACHABLE\n"
-                                       f"Ping {layer_4.avg_rtt:.0f} ms\n"
-                                       f"{layer_4.packet_loss * 100:.0f}% packet loss")
-            else:
-                return term.red(f"UNREACHABLE")
+            c = Connectivity.get_for_layer_4(layer_4)
+
+            message = ""
+            color = term.white
+
+            if c == Connectivity.REACHABLE:
+                color = term.green
+                message = f"REACHABLE\n" \
+                          f"Ping {layer_4.avg_rtt:.0f} ms\n" \
+                          f"No packets lost"
+            elif Connectivity.PARTIALLY_REACHABLE:
+                color = term.yellow
+                message = f"PARTIALLY REACHABLE\n" \
+                          f"Ping {layer_4.avg_rtt:.0f} ms\n" \
+                          f"{layer_4.packet_loss * 100:.0f}% packet loss"
+            elif Connectivity.UNREACHABLE:
+                color = term.red
+                message = color(f"UNREACHABLE")
+            elif c == Connectivity.UNKNOWN:
+                color = term.webgray
+                message = color(f"UNKNOWN")
+
+            message = color_text(message, color)
+
+            return message
 
         def get_connectivity_string_l7(layer_7: Response | RequestException) -> str:
+            c = Connectivity.get_for_layer_7(layer_7)
+
+            message = ""
+            color = term.white
+
             if isinstance(layer_7, Response):
                 response: Response = layer_7
-                is_down = response.status_code >= 500
-                is_ok = response.status_code == 200
 
                 # pick color based on state
-                if is_ok:
+                if c == Connectivity.REACHABLE:
                     color = term.green
-                elif is_down:
-                    color = term.red
-                else:
+                elif c == Connectivity.PARTIALLY_REACHABLE:
                     color = term.yellow
+                elif c == Connectivity.UNRESPONSIVE:
+                    color = term.red
 
-                return color(f"{response.status_code}: {response.reason}")
+                message = f"Response code {response.status_code}:\n{response.reason}"
             elif isinstance(layer_7, RequestException):
                 exception: RequestException = layer_7
-                return term.red(f"{type(exception).__name__}")
+                color = term.red
+                message = f"Exception:\n{type(exception).__name__}"
             else:
-                return term.grey(f"UNKNOWN")
+                color = term.webgray
+                message = f"UNKNOWN"
+
+            message = color_text(message, color)
+
+            return message
 
         if not attack_state.is_using_proxies:
+            no_proxy_color = term.webgray
             row = [
-                term.grey("DIRECT\n(no proxy)"),
+                f"{no_proxy_color('DIRECT')}\n{no_proxy_color('(no proxy)')}",
                 get_connectivity_string_l4(connectivity.layer_4),
                 get_connectivity_string_l7(connectivity.layer_7),
             ]
@@ -552,56 +636,66 @@ class GUI(Thread):
         else:
             for i in range(len(connectivity.layer_4_proxied)):
                 row = [
-                    term.grey(f"Proxy {i + 1}"),
+                    term.cyan(f"Proxy {i + 1}"),
                     get_connectivity_string_l4(connectivity.layer_4_proxied[i]),
                     get_connectivity_string_l7(connectivity.layer_7_proxied[i]),
                 ]
                 table.add_row(row)
 
-    @staticmethod
-    def color_table_header(table: PrettyTable,
-                           table_string: str,
-                           color: Callable[[str], str] = term.black_on_orange) -> str:
-        split = table_string.split("\n")
-        header_height = len(table_string.split(table.left_junction_char)[0].split("\n"))
-        for i in range(1, header_height - 1):
-            header_split = split[i]
-            columns_split = header_split[1:-1].split(table.vertical_char)
-            new_row = ""
-            colored_vertical_char = term.orange(table.vertical_char)
-            new_row += colored_vertical_char
-            for j in range(len(columns_split)):
-                columns_split[j] = color(columns_split[j])
-            new_row += colored_vertical_char.join(columns_split)
-            new_row += colored_vertical_char
-            split[i] = new_row
-        table_string = "\n".join(split)
+    # @staticmethod
+    # def color_table_header(table: PrettyTable,
+    #                        table_string: str,
+    #                        color: Callable[[str], str] = term.black_on_orange) -> str:
+    #     split = table_string.split("\n")
+    #     header_height = len(table_string.split(table.left_junction_char)[0].split("\n"))
+    #     for i in range(1, header_height - 1):
+    #         header_split = split[i]
+    #         columns_split = header_split[1:-1].split(table.vertical_char)
+    #         new_row = ""
+    #         colored_vertical_char = color(table.vertical_char)
+    #         new_row += colored_vertical_char
+    #         for j in range(len(columns_split)):
+    #             columns_split[j] = color(columns_split[j])
+    #         new_row += colored_vertical_char.join(columns_split)
+    #         new_row += colored_vertical_char
+    #         split[i] = new_row
+    #     table_string = "\n".join(split)
+    #
+    #     return table_string
 
-        return table_string
-
     @staticmethod
-    def _highlight_table_row(row_index: int,
-                             table: PrettyTable,
-                             table_string: str,
-                             color: Callable[[str], str] = term.black_on_bright_white) -> str:
-        rows_count = len(table.rows) - 1  # <- account for header row
+    def _color_table_row(row_index: int,
+                         table: PrettyTable,
+                         table_string: str,
+                         cells_color: Callable[[str], str] = None,
+                         lines_color: Callable[[str], str] = None) -> str:
+        rows_count = len(table.rows)
         if (row_index < 0) or (row_index >= rows_count):
             return table_string
 
         left_junction_char = table.left_junction_char
         vertical_char = table.vertical_char
+        colored_vertical_char = lines_color(vertical_char) if lines_color else vertical_char
 
         row_strings = table_string.split(left_junction_char)
         for i in range(rows_count):
-            i = i + 1  # <- account for header row
-            if row_index == (i - 1):
+            if row_index == i:
                 row_lines = row_strings[i].split("\n")
                 for j in range(1, len(row_lines) - 1):
                     line = row_lines[j]
-                    line = line[1:]
-                    line = line[:-1]
-                    line = color(line)
-                    row_lines[j] = f"{vertical_char}{line}{vertical_char}"
+
+                    colored_row_line = ""
+                    colored_row_line += colored_vertical_char
+
+                    columns_split = line[1:-1].split(table.vertical_char)
+                    if cells_color:
+                        for k in range(len(columns_split)):
+                            columns_split[k] = cells_color(columns_split[k])
+
+                    colored_row_line += colored_vertical_char.join(columns_split)
+                    colored_row_line += colored_vertical_char
+
+                    row_lines[j] = colored_row_line
                 row_strings[i] = "\n".join(row_lines)
                 break
 
