@@ -1,4 +1,5 @@
 import math
+import threading
 import time
 from multiprocessing import Queue
 from threading import Thread
@@ -92,14 +93,17 @@ class GUI(Thread):
                  logging_queue: Queue):
         Thread.__init__(self, daemon=True, name="GUI")
 
-        global logger
-        logger = get_logger_for_current_process(logging_queue, "GUI")
+        self.logger = get_logger_for_current_process(logging_queue, "GUI")
         self._logging_queue = logging_queue
 
         self._args = args
         self._attacks_state_queue = attacks_state_queue
         self._supervisor_state_queue = supervisor_state_queue
         # self._update_interval = update_interval
+
+        stop_event = threading.Event()
+        stop_event.clear()
+        self._stop_event = stop_event
 
         # INTERACTIONS
 
@@ -135,24 +139,29 @@ class GUI(Thread):
         self._nav_tips_window = window
 
     def run(self):
-        with term.fullscreen(), term.cbreak(), term.hidden_cursor():
-            try:
+        try:
+            with term.fullscreen(), term.cbreak(), term.hidden_cursor():
                 print_and_flush(term.home + term.clear)
                 ScreenResizeHandler(term, self.force_redraw, debug_display=False)
 
-                while True:
+                while not self._stop_event.is_set():
                     self._update_supervisor_state()
                     self.redraw()
                     time.sleep(self._update_interval)
-            except Exception as e:
-                # print_and_flush(term.clear)
-                # print_and_flush(pad_text_to_box("", term.width, term.height, term))
-                term.move_xy(term.width, term.height)
-                print_and_flush("\n")
-                # print_and_flush(term.black_on_red(e))
-                raise e
-            except (KeyboardInterrupt, SystemExit):
-                pass
+        except Exception as e:
+            # print_and_flush(term.clear)
+            # print_and_flush(pad_text_to_box("", term.width, term.height, term))
+            # print_and_flush(term.black_on_red(e))
+            raise e
+        except (KeyboardInterrupt, SystemExit) as e:
+            raise e
+        finally:
+            # print_and_flush("\n")
+            self._keyboard_listener.stop()
+            self.logger.info("GUI exited.")
+
+    def stop(self):
+        self._stop_event.set()
 
     def _update_supervisor_state(self):
         self._supervisor_state = get_last_from_queue(self._supervisor_state_queue, self._supervisor_state)

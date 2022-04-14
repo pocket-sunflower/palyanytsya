@@ -3,7 +3,8 @@ Miscellaneous utilities used by MHDDoS.
 """
 
 import ctypes
-from multiprocessing import RawValue, Lock, Queue
+from multiprocessing import Queue, Lock
+from multiprocessing.sharedctypes import RawValue
 from queue import Empty
 from typing import Any
 

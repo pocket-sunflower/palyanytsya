@@ -103,6 +103,7 @@ def validate_proxies(proxies: List[Proxy],
         status_queue: Optional Queue which will receive ProxiesValidationState as the check progresses.
         max_concurrent_connections: Maximum number of concurrent connections to the target during validation.
             Limiting this number may help to prevent overflowing the target with connections and give more reliable validation results.
+        stop_event:
 
     Returns:
         List of proxies through which the given target's IP can be reached.
@@ -114,8 +115,7 @@ def validate_proxies(proxies: List[Proxy],
     # TODO: factor in thread limit in L4 ping into calculation
     expected_duration = math.ceil(float(retries * (ping_retries * (ping_timeout + ping_interval))))
     validation_start_time = time.time()
-    n_validated = Counter(0)
-    n_tries = Counter(0)
+    n_tries = 0
     validated_proxies_indices: Set[int] = set()
 
     state: ProxiesValidationState | None = None
@@ -128,7 +128,7 @@ def validate_proxies(proxies: List[Proxy],
         state = ProxiesValidationState(
             validation_start_timestamp=validation_start_time,
             expected_duration=expected_duration,
-            progress=int(n_tries) / float(retries),
+            progress=float(n_tries) / float(retries),
             total_proxies=n_proxies,
             validated_proxies_indices=list(validated_proxies_indices),
         )
@@ -141,7 +141,7 @@ def validate_proxies(proxies: List[Proxy],
 
         post_update()
 
-        n_tries.set(i + 1)
+        n_tries = i + 1
 
         _, l4_proxied_results = ConnectivityUtils.connectivity_check_layer_4(
             ip=target.ip,
@@ -154,13 +154,10 @@ def validate_proxies(proxies: List[Proxy],
         )
 
         # grab valid proxies from the results
-        for j, proxy in enumerate(proxies):
+        for j in range(len(proxies)):
             proxied_result = l4_proxied_results[j]
             if proxied_result.is_alive:
                 validated_proxies_indices.add(j)
-
-        # update stats
-        n_validated.set(len(validated_proxies_indices))
 
     # post update after the validation is complete
     post_update()

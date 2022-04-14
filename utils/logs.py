@@ -99,7 +99,7 @@ def initialize_logging(no_gui: bool = True) -> Queue:
     ]
 
     # this collect logs from all process loggers created by get_logger_for_current_process()
-    queue_listener = SafeQueueListener(
+    queue_listener = QueueListener(
         logging_queue,
         *handlers,
         respect_handler_level=False

@@ -6,6 +6,8 @@ import time
 from humanfriendly.terminal import ansi_wrap
 from requests import get
 
+from MHDDoS.methods.tools import Tools
+
 
 class TimeInterval:
     interval: float

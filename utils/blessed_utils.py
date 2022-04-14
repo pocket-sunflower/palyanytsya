@@ -1,3 +1,4 @@
+import threading
 import time
 from threading import Thread
 from typing import Callable, Dict
@@ -116,33 +117,36 @@ class KeyboardListener:
         self._term = term
         self._on_press_callback = on_key_callback
 
+        stop_event = threading.Event()
+        stop_event.clear()
+        self._stop_event = stop_event
+
         self._reader_thread = Thread(target=self._key_reader, daemon=True)
         self._reader_thread.start()
 
     def _key_reader(self):
         term = self._term
 
-        try:
-            with term.cbreak():
-                while True:
-                    key: Keystroke = term.inkey()
+        with term.cbreak():
+            while not self._stop_event.is_set():
+                key: Keystroke = term.inkey()
 
-                    if key is None:
-                        continue
+                if key is None:
+                    continue
 
-                    # respect the interval if the key has been recently pressed
-                    key_id = key.name if key.is_sequence else key
-                    time_since_last_callback = time.perf_counter() - self._last_key_presses.get(key_id, 0)
-                    if time_since_last_callback < self._same_key_interval:
-                        continue
+                # respect the interval if the key has been recently pressed
+                key_id = key.name if key.is_sequence else key
+                time_since_last_callback = time.perf_counter() - self._last_key_presses.get(key_id, 0)
+                if time_since_last_callback < self._same_key_interval:
+                    continue
 
-                    self._last_key_presses[key_id] = time.perf_counter()
+                self._last_key_presses[key_id] = time.perf_counter()
 
-                    self._on_press_callback(key)
-        except Exception:
-            pass
-        except (KeyboardInterrupt, SystemExit):
-            pass
+                self._on_press_callback(key)
+
+    def stop(self):
+        self._stop_event.set()
+        self._reader_thread.join()
 
 
 class ScreenResizeHandler:

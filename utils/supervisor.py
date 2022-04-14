@@ -1,3 +1,4 @@
+import threading
 import time
 from dataclasses import dataclass
 from multiprocessing import Queue, Process
@@ -55,8 +56,7 @@ class AttackSupervisor(Thread):
                  logging_queue: Queue):
         Thread.__init__(self, daemon=True, name="Supervisor")
 
-        global logger
-        logger = get_logger_for_current_process(logging_queue, "SUPERVISOR")
+        self.logger = get_logger_for_current_process(logging_queue, "SUPERVISOR")
         self._logging_queue = logging_queue
 
         self._args = args
@@ -66,13 +66,19 @@ class AttackSupervisor(Thread):
         self._targets_fetch_interval = TimeInterval(args.config_fetch_interval)
         self._proxies_fetch_interval = TimeInterval(args.proxies_fetch_interval)
 
-        logger.info("Starting attack supervisor...")
+        stop_event = threading.Event()
+        stop_event.clear()
+        self._stop_event = stop_event
+
+        self.logger.info("Starting attack supervisor...")
 
     def run(self) -> None:
-        state_publisher = Thread(target=self._state_publisher_thread, daemon=True)
-        state_publisher.start()
+        logger = self.logger
 
-        while True:
+        state_publisher_thread = Thread(target=self._state_publisher, daemon=True)
+        state_publisher_thread.start()
+
+        while not self._stop_event.is_set():
             targets_changed = self._fetch_targets()
             proxies_changed = self._fetch_proxies()
 
@@ -83,6 +89,16 @@ class AttackSupervisor(Thread):
 
             time.sleep(self._internal_loop_sleep_interval)
 
+        logger.info("Supervisor thread stopping...")
+
+        self._stop_all_attacks(True)
+        state_publisher_thread.join()
+
+        logger.info("Supervisor thread stopped.")
+
+    def stop(self):
+        self._stop_event.set()
+
     def _fetch_targets(self) -> bool:
         """
         Fetches targets configuration.
@@ -92,6 +108,8 @@ class AttackSupervisor(Thread):
         """
         if not self._targets_fetch_interval.check_if_has_passed():
             return False
+
+        logger = self.logger
 
         self._is_fetching_targets = True
         logger.info("Fetching targets...")
@@ -133,6 +151,8 @@ class AttackSupervisor(Thread):
         Returns:
             True if proxies have changed, False otherwise.
         """
+        logger = self.logger
+
         proxies_file_path = self._args.proxies
         if proxies_file_path is None:
             return False
@@ -160,10 +180,21 @@ class AttackSupervisor(Thread):
         self._is_fetching_proxies = False
         return True
 
-    def _restart_attacks(self) -> None:
+    def _stop_all_attacks(self, blocking: bool = False) -> None:
         # kill all existing attack processes
-        for process in self._attack_processes:
+        processes_to_kill = self._attack_processes.copy()
+        for process in processes_to_kill:
             process.kill()
+
+        if blocking:
+            for process in processes_to_kill:
+                process.join()
+
+    def _restart_attacks(self) -> None:
+        logger = self.logger
+
+        # kill all existing attack processes
+        self._stop_all_attacks()
 
         # check if we have targets
         targets_count = len(self._targets)
@@ -188,6 +219,8 @@ class AttackSupervisor(Thread):
             self._attack_processes.append(attack_process)
             attack_process.start()
 
+        logger.info(f"Started attacks upon {len(self._targets)} targets.")
+
     def _update_attack_states(self) -> None:
         if len(self._attack_processes) <= 0:
             return
@@ -209,8 +242,8 @@ class AttackSupervisor(Thread):
         # TODO: do this
         raise NotImplemented
 
-    def _state_publisher_thread(self):
-        while True:
+    def _state_publisher(self):
+        while not self._stop_event.is_set():
             sorted_attack_states = [self._attack_states[k] for k in sorted(self._attack_states.keys())]
             state = AttackSupervisorState(
                 is_fetching_proxies=self._is_fetching_proxies,
