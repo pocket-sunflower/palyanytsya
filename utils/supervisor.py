@@ -7,7 +7,7 @@ from typing import List, Dict
 
 import psutil
 
-from MHDDoS.start import attack, AttackState
+from MHDDoS.attack import Attack, AttackState
 from MHDDoS.utils.config_files import read_configuration_file_lines
 from MHDDoS.utils.proxies import load_proxies
 from MHDDoS.utils.targets import Target
@@ -177,18 +177,14 @@ class AttackSupervisor(Thread):
 
         # launch attack process for every target
         for i, target in enumerate(self._targets):
-            attack_process = Process(
-                target=attack,
-                kwargs={
-                    "target": target,
-                    "attack_methods": self._args.attack_methods,
-                    "proxies_file_path": self._args.proxies,
-                    "attack_state_queue": self._attacks_state_queue,
-                    "logging_queue": self._logging_queue,
-                },
-                daemon=True,
-                name=f"ATTACK_{i + 1}"
+            attack_process = Attack(
+                target=target,
+                attack_methods=self._args.attack_methods,
+                proxies_file_path=self._args.proxies,
+                attack_state_queue=self._attacks_state_queue,
+                logging_queue=self._logging_queue,
             )
+            attack_process.name = f"ATTACK_{i + 1}"
             self._attack_processes.append(attack_process)
             attack_process.start()
 

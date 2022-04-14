@@ -10,12 +10,12 @@ from icmplib import Host
 from prettytable import PrettyTable, ALL
 from requests import Response, RequestException
 
+from MHDDoS.attack import AttackState
 from MHDDoS.methods.tools import Tools
-from MHDDoS.start import AttackState
 from MHDDoS.utils.connectivity import Connectivity, ConnectivityState
 from MHDDoS.utils.misc import get_last_from_queue
 from MHDDoS.utils.targets import Target
-from utils.blessed_utils import BlessedWindow, center_text, print_and_flush, ScreenResizeHandler, pad_text_to_itself, text_width, pad_text_to_box, KeyboardListener, wrap_text_in_border, color_text
+from utils.blessed_utils import BlessedWindow, print_and_flush, ScreenResizeHandler, text_width, pad_text_to_box, KeyboardListener, wrap_text_in_border, color_text
 from utils.input_args import Arguments
 from utils.logs import get_logger_for_current_process
 from utils.misc import TimeInterval
@@ -121,12 +121,12 @@ class GUI(Thread):
         window = BlessedWindow(term)
         window.pos_y = self.FLAIR_HEIGHT + self.SUPERVISOR_HEIGHT
         window.max_width = self.MAX_GUI_WIDTH
-        self._target_status_window = window
+        self._attacks_window = window
 
         window = BlessedWindow(term)
         window.pos_y = self.FLAIR_HEIGHT + self.SUPERVISOR_HEIGHT
         window.max_width = self.MAX_GUI_WIDTH
-        self._attacks_window = window
+        self._target_status_window = window
 
         window = BlessedWindow(term)
         window.pos_y = term.height - 2
@@ -145,17 +145,17 @@ class GUI(Thread):
                     self.redraw()
                     time.sleep(self._update_interval)
             except Exception as e:
-                print_and_flush(term.clear)
-                print_and_flush(pad_text_to_box("", term.width, term.height, term))
-                print_and_flush(term.black_on_red(e))
-                # raise e
+                # print_and_flush(term.clear)
+                # print_and_flush(pad_text_to_box("", term.width, term.height, term))
+                term.move_xy(term.width, term.height)
+                print_and_flush("\n")
+                # print_and_flush(term.black_on_red(e))
+                raise e
             except (KeyboardInterrupt, SystemExit):
                 pass
 
     def _update_supervisor_state(self):
-        new_state = get_last_from_queue(self._supervisor_state_queue)
-        if new_state is not None:
-            self._supervisor_state = new_state
+        self._supervisor_state = get_last_from_queue(self._supervisor_state_queue, self._supervisor_state)
 
     # PROPERTIES
 
@@ -381,8 +381,8 @@ class GUI(Thread):
 
         # CONNECTIVITY INFO
         table.clear()
-        self._add_header_to_connectivity_table(table)
-        self._add_rows_to_connectivity_table(table)
+        self._add_header_to_connectivity_table(table, attack_state.target)
+        self._add_rows_to_connectivity_table(table, attack_state.target)
         table_string = table.get_string()
         table_string = self._color_table_row(0, table, table_string, term.black_on_cyan, term.cyan)
         window.add_content(table_string)
@@ -457,29 +457,33 @@ class GUI(Thread):
                        f"({Tools.humanbytes(attack.total_bytes_sent)})"
 
         # proxies
-        proxies = ""
+        proxies_string = ""
         proxies_count = self._supervisor_state.proxies_count
-        if attack.proxy_validation_state is not None:
-            n_validated_proxies = len(attack.proxy_validation_state.validated_proxies_indices)
-            proxies += f"{n_validated_proxies} / {proxies_count}"
 
-            is_validating = not attack.proxy_validation_state.is_validation_complete
-            if is_validating:
-                progress = attack.proxy_validation_state.progress
-                proxies += f"Validating ({progress:.0f}%)..."
-            else:
-                proxies += f"{n_validated_proxies} valid."
+        if proxies_count == 0:
+            proxies_string = term.webgray("Not used")
+        elif attack.proxy_validation_state is None:
+            proxies_string = term.webgray(f"Validating...")
         else:
-            if proxies_count > 0:
-                proxies = f"{proxies_count}\nValidating..."
+            n_validated_proxies = len(attack.proxy_validation_state.validated_proxies_indices)
+            n_used_proxies = attack.used_proxies_count
+            n_total_proxies = attack.total_proxies_count
+            n_unused_proxies = n_total_proxies - n_used_proxies
+
+            if n_used_proxies > 0:
+                proxies_string += f"{term.green(f'{n_used_proxies} valid')}\n"
+
+            if attack.proxy_validation_state.is_validating:
+                progress = attack.proxy_validation_state.progress
+                proxies_string += f"{term.lightcyan(f'Validating {progress * 100:.0f}%')}"  # TODO: use progress bar instead
             else:
-                proxies = term.orange("Not used")
+                proxies_string += f"{term.webgray(f'{n_unused_proxies} unused')}"
 
         row_entries = [
             attack.target,
             target_status_string,
             attack_methods_string,
-            proxies,
+            proxies_string,
             requests_string,
             bytes_string,
             # attack.attack_pid,
@@ -554,15 +558,15 @@ class GUI(Thread):
 
     # TARGET STATUS VIEW
 
-    def _add_header_to_connectivity_table(self, table: PrettyTable) -> None:
+    def _add_header_to_connectivity_table(self, table: PrettyTable, target: Target) -> None:
         connectivity_table_columns = [
             "Proxy",
-            "Layer 4",
-            "Layer 7",
+            "Layer 4",  # if target.is_layer_4 else "Layer 7" if target.is_layer_7 else "[INVALID TARGET]"
+            "Layer 7"
         ]
         table.add_row(connectivity_table_columns)
 
-    def _add_rows_to_connectivity_table(self, table: PrettyTable) -> None:
+    def _add_rows_to_connectivity_table(self, table: PrettyTable, target: Target) -> None:
         attack_state = self._supervisor_state.attack_states[self._selected_attack_index]
         connectivity = attack_state.connectivity_state
         if connectivity is None:
@@ -626,17 +630,24 @@ class GUI(Thread):
             return message
 
         if not attack_state.is_using_proxies:
-            no_proxy_color = term.webgray
+            no_proxy_string = color_text(f"DIRECT\n(no proxy)", term.webgray)
+
+            # if target.is_layer_4:
+            #     con
+
             row = [
-                f"{no_proxy_color('DIRECT')}\n{no_proxy_color('(no proxy)')}",
+                no_proxy_string,
                 get_connectivity_string_l4(connectivity.layer_4),
                 get_connectivity_string_l7(connectivity.layer_7),
             ]
             table.add_row(row)
         else:
             for i in range(len(connectivity.layer_4_proxied)):
+                # TODO: display proxy address
+                proxy_string = f"Proxy {i + 1}"
+                proxy_string = color_text(proxy_string, term.cyan)
                 row = [
-                    term.cyan(f"Proxy {i + 1}"),
+                    proxy_string,
                     get_connectivity_string_l4(connectivity.layer_4_proxied[i]),
                     get_connectivity_string_l7(connectivity.layer_7_proxied[i]),
                 ]

@@ -1,5 +1,6 @@
 import logging
 import math
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
@@ -20,6 +21,7 @@ from MHDDoS.utils.connectivity import ConnectivityUtils
 from MHDDoS.utils.misc import Counter
 from MHDDoS.utils.targets import Target
 from MHDDoS.utils.text import CyclicPeriods
+from utils.misc import TimeInterval
 
 logger = logging.getLogger()
 
@@ -54,6 +56,10 @@ class ProxiesValidationState:
     validated_proxies_indices: List[int]
 
     @property
+    def is_validating(self):
+        return 0 <= self.progress < 1
+
+    @property
     def is_validation_complete(self):
         return self.progress >= 1
 
@@ -76,8 +82,13 @@ class ProxiesValidationState:
 
 def validate_proxies(proxies: List[Proxy],
                      target: Target,
-                     retries: int = 3,
-                     status_queue: Queue = None) -> List[Proxy]:
+                     retries: int = 4,
+                     ping_retries: int = 1,
+                     ping_timeout: float = 3,
+                     ping_interval: float = 0.2,
+                     status_queue: Queue = None,
+                     max_concurrent_connections: int = 1000,
+                     stop_event: threading.Event = None) -> List[Proxy]:
     """
     Checks which of the given proxies can be used to reach the given target's IP.
     This helps to filter out proxies which are non-functional or are blocked by the target and, as a result, make the attack more effective.
@@ -86,7 +97,12 @@ def validate_proxies(proxies: List[Proxy],
         proxies: List of proxies to check.
         target: Target to check.
         retries: How many times to run the validation before giving out the results (more retries may result in more valid proxies).
+        ping_retries:
+        ping_timeout:
+        ping_interval:
         status_queue: Optional Queue which will receive ProxiesValidationState as the check progresses.
+        max_concurrent_connections: Maximum number of concurrent connections to the target during validation.
+            Limiting this number may help to prevent overflowing the target with connections and give more reliable validation results.
 
     Returns:
         List of proxies through which the given target's IP can be reached.
@@ -95,132 +111,129 @@ def validate_proxies(proxies: List[Proxy],
         return []
 
     n_proxies = len(proxies)
-    l4_retries = 1
-    l4_timeout = 2
-    l4_interval = 0.2
     # TODO: factor in thread limit in L4 ping into calculation
-    expected_duration = math.ceil(float(retries * (l4_retries * (l4_timeout + l4_interval))))
-
-    # message = f"Checking if the target is reachable through the provided proxies...\n"
-    # heart = ansi_wrap("♥", color="red")
-    # message += f"    This may take up to {expected_max_duration_min} min, but will make the attack more effective. Please hold on {heart}"
-    # print(message)
-
+    expected_duration = math.ceil(float(retries * (ping_retries * (ping_timeout + ping_interval))))
     validation_start_time = time.time()
     n_validated = Counter(0)
     n_tries = Counter(0)
     validated_proxies_indices: Set[int] = set()
 
+    state: ProxiesValidationState | None = None
+
     def post_update():
-        if not status_queue:
+        if status_queue is None:
             return
 
-        status_queue.put(ProxiesValidationState(
+        nonlocal state
+        state = ProxiesValidationState(
             validation_start_timestamp=validation_start_time,
             expected_duration=expected_duration,
             progress=int(n_tries) / float(retries),
             total_proxies=n_proxies,
             validated_proxies_indices=list(validated_proxies_indices),
-        ))
+        )
+        status_queue.put(state)
 
-    def proxy_check_thread():
-        for i in range(retries):
-            post_update()
+    # validate given number of times
+    for i in range(retries):
+        if stop_event and stop_event.is_set():
+            break
 
-            n_tries.set(i + 1)
+        post_update()
 
-            l4_result, l4_proxied_results = ConnectivityUtils.connectivity_check_layer_4(
-                ip=target.ip,
-                port=target.port,
-                proxies=proxies,
-                retries=l4_retries,
-                timeout=l4_timeout,
-                interval=l4_interval,
-            )
+        n_tries.set(i + 1)
 
-            # grab valid proxies from the results
-            for j, proxy in enumerate(proxies):
-                proxied_result = l4_proxied_results[j]
-                if proxied_result.is_alive:
-                    validated_proxies_indices.add(j)
+        _, l4_proxied_results = ConnectivityUtils.connectivity_check_layer_4(
+            ip=target.ip,
+            port=target.port,
+            proxies=proxies,
+            retries=ping_retries,
+            timeout=ping_timeout,
+            interval=ping_interval,
+            max_concurrent_connections=max_concurrent_connections
+        )
 
-            # update stats
-            n_validated.set(len(validated_proxies_indices))
+        # grab valid proxies from the results
+        for j, proxy in enumerate(proxies):
+            proxied_result = l4_proxied_results[j]
+            if proxied_result.is_alive:
+                validated_proxies_indices.add(j)
 
-    # run checks in another thread
-    thread = Thread(daemon=True, target=proxy_check_thread)
-    thread.start()
-    thread.join()
+        # update stats
+        n_validated.set(len(validated_proxies_indices))
 
+    # post update after the validation is complete
     post_update()
 
-    validated_proxies: List[Proxy] = list()
-
-    # # display waiting notification
-    # GO_TO_PREVIOUS_LINE = f"\033[A"
-    # CLEAR_LINE = "\033[K"
-    # GO_TO_LINE_START = "\r"
-    # cyclic_periods = CyclicPeriods()
-    # first_run = True
-    # while thread.is_alive():
-    #     # if int(n_validated) < 1:
-    #     #     print(f"    Proxy check cycle {int(n_tries)}/{total_check_cycles}{cyclic_periods}")
-    #     # else:
-    #     #     p_word = "proxies" if int(n_validated) > 1 else "proxy"
-    #     #     message = f"    Proxy check cycle {int(n_tries)}/{total_check_cycles} ("
-    #     #     message += ansi_wrap(f"confirmed {int(n_validated)} {p_word}", color="green")
-    #     #     message += f"){cyclic_periods}"
-    #     #     print(message)
-    #
-    #     sleep(cyclic_periods.update_interval)
-    #     clear_lines_from_console(1)
-    # duration = time.time() - validation_start_time
-    # n_validated = int(n_validated)
-    # if n_validated > 0:
-    #     message = f"    Checked {n_proxies} proxies in {duration:.0f} sec. "
-    #     print(message, end="")
-    #     sleep(2)
-    #     message = ansi_wrap(f"{n_validated} {'proxies are' if n_validated > 1 else 'proxy is'} suitable for the attack.", color="green")
-    #     print(message)
-    #     sleep(2)
-    # else:
-    #     exit("The target is not reachable through any of the provided proxies. The target may be down.")
-
-    return list(validated_proxies)
+    validated_proxies: List[Proxy] = state.get_validated_proxies(proxies)
+    return validated_proxies
 
 
-def proxies_validation_thread(proxies: List[Proxy],
-                              target: Target,
-                              retries: int = 3,
-                              interval: float = 120,
-                              status_queue: Queue = None):
-    while True:
-        validate_proxies(proxies, target, retries, status_queue)
-        time.sleep(interval)
+class ProxiesValidator(Thread):
+
+    def __init__(self,
+                 proxies: List[Proxy],
+                 target: Target,
+                 retries: int = 4,
+                 interval: float = 120,
+                 ping_retries: int = 1,
+                 ping_timeout: float = 3,
+                 ping_interval: float = 0.2,
+                 status_queue: Queue = None):
+        Thread.__init__(self, daemon=True)
+        self.proxies = proxies
+        self.target = target
+        self.retries = retries
+        self.interval = TimeInterval(interval)
+        self.ping_retries = ping_retries
+        self.ping_timeout = ping_timeout
+        self.ping_interval = ping_interval
+        self.status_queue = status_queue
+
+        stop_event = threading.Event()
+        stop_event.clear()
+        self._stop_event = stop_event
+
+    def run(self):
+        while not self._stop_event.is_set():
+            validate_proxies(self.proxies,
+                             self.target,
+                             self.retries,
+                             self.ping_retries,
+                             self.ping_timeout,
+                             self.ping_interval,
+                             self.status_queue,
+                             stop_event=self._stop_event)
+
+            while (not self.interval.check_if_has_passed()) and (not self._stop_event.is_set()):
+                time.sleep(0.01)
+
+    def stop(self):
+        self._stop_event.set()
 
 
 class ProxyManager:
     @staticmethod
     def DownloadFromConfig(cf, Proxy_type: int) -> Set[Proxy]:
-        providrs = [
+        providers = [
             provider for provider in cf["proxy-providers"]
             if provider["type"] == Proxy_type or Proxy_type == 0
         ]
-        logger.info("Downloading Proxies form %d Providers" % len(providrs))
-        proxes: Set[Proxy] = set()
+        logger.info("Downloading Proxies form %d Providers" % len(providers))
+        proxies: Set[Proxy] = set()
 
-        with ThreadPoolExecutor(len(providrs)) as executor:
+        with ThreadPoolExecutor(len(providers)) as executor:
             future_to_download = {
                 executor.submit(
                     ProxyManager.download, provider,
                     ProxyType.stringToProxyType(str(provider["type"])))
-                for provider in providrs
+                for provider in providers
             }
             from concurrent.futures import as_completed
             for future in as_completed(future_to_download):
                 for pro in future.result():
-                    proxes.add(pro)
-        return proxes
+                    proxies.add(pro)
+        return proxies
 
     @staticmethod
     def get_unique_proxies_from_set(proxies: Set[Proxy]) -> Set[Proxy]:
@@ -237,16 +250,16 @@ class ProxyManager:
     @staticmethod
     def download(provider, proxy_type: ProxyType) -> Set[Proxy]:
         logger.debug(f"Downloading Proxies form (URL: {provider['url']}, Type: {proxy_type.name}, Timeout: {provider['timeout']:d})")
-        proxes: Set[Proxy] = set()
+        proxies: Set[Proxy] = set()
         with suppress(TimeoutError, ConnectionError, ReadTimeout):
             data = get(provider["url"], timeout=provider["timeout"]).text
             try:
                 for proxy in ProxyUtiles.parseAllIPPort(
                         data.splitlines(), proxy_type):
-                    proxes.add(proxy)
+                    proxies.add(proxy)
             except Exception as e:
                 logger.error(f"Download Proxy Error: {e.__str__() or e.__repr__()}")
-        return proxes
+        return proxies
 
     @staticmethod
     def loadProxyList(config, proxies_file: Path, proxy_type: int) -> Set[Proxy] | None:
