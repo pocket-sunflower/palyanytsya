@@ -80,7 +80,7 @@ class Attack(Process):
     # ATTACK THREADS
     attack_threads: List[Thread] = []
     attack_threads_stop_events: List[Event] = []
-    INITIAL_THREADS_COUNT = 1
+    INITIAL_THREADS_COUNT = 100
     THREADS_MAX_LIMIT = 1
     THREADS_MIN_LIMIT = 1
     THREADS_STEP = 10
@@ -178,37 +178,6 @@ class Attack(Process):
         connectivity_state_queue = Queue()
         self.post_status_update()
 
-        # FIND VALID PROXIES
-        if self.proxies:
-            self.proxies_validator_thread = ProxiesValidator(
-                self.proxies,
-                self.target,
-                interval=self.PROXIES_CHECK_INTERVAL,
-                status_queue=proxies_validation_state_queue
-            )
-            self.proxies_validator_thread.start()
-
-            logger.info(f"Validating {len(self.proxies)} proxies...")
-
-            while True:
-                time.sleep(0.01)
-
-                self.proxies_validation_state: ProxiesValidationState = proxies_validation_state_queue.get()
-                if self.proxies_validation_state is None:
-                    continue
-
-                self.post_status_update()
-                logger.info(f"Waiting for initial proxy validation to complete ({self.proxies_validation_state.progress * 100:.0f}%, "
-                            f"{self.proxies_validation_state.validated_proxies_count} valid proxies found)...")
-
-                if self.proxies_validation_state.is_validation_complete:
-                    used_proxies = self.proxies_validation_state.get_validated_proxies(self.proxies)
-                    logger.info(f"Proxy validation completed. Found {self.proxies_validation_state.validated_proxies_count} valid proxies.")
-                    if self.proxies_validation_state.validated_proxies_count == 0:
-                        logger.critical(f"Target cannot be reached through any of {len(self.proxies)} provided proxy servers. Attack will not be executed.")
-                        raise ValueError
-                    break
-
         # START CONNECTIVITY CHECKER THREAD
         self.connectivity_checker_thread = ConnectivityChecker(
             self.CONNECTIVITY_CHECK_INTERVAL,
@@ -217,6 +186,21 @@ class Attack(Process):
             connectivity_state_queue
         )
         self.connectivity_checker_thread.start()
+
+        # WAIT UNTIL VALID PROXIES ARE FOUND
+        self.used_proxies = self.proxies
+        if self.proxies and False:
+            layer_string = "Layer 4 (TCP)" if self.target.is_layer_4 else "Layer 7 (HTTPS)"
+            logger.info(f"Looking for valid ones among {len(self.proxies)} proxies through {layer_string}...")
+
+            self.connectivity_state: ConnectivityState = connectivity_state_queue.get()
+
+            if self.connectivity_state.has_valid_proxies:
+                logger.info(f"Found {self.connectivity_state.valid_proxies_count} proxies which can reach the target.")
+                self.used_proxies = self.connectivity_state.get_valid_proxies(self.proxies)
+            else:
+                raise AttackError(f"Target cannot be reached through any of {len(self.proxies)} provided proxy servers. "
+                                  f"Attack will not be executed.")
 
         # ATTACK
         attack_methods_string = ", ".join(self.attack_methods)
@@ -232,12 +216,11 @@ class Attack(Process):
             self.cpu_usage = self.process.cpu_percent()
 
             # poll queues
-            connectivity_state = get_last_from_queue(connectivity_state_queue, self.connectivity_state)
-            proxies_validation_state = get_last_from_queue(proxies_validation_state_queue, self.proxies_validation_state)
-
-            # update proxies
-            if proxies_validation_state.is_validation_complete and proxies_validation_state.validated_proxies_count > 0:
-                used_proxies = proxies_validation_state.get_validated_proxies(self.proxies)
+            self.connectivity_state = get_last_from_queue(connectivity_state_queue, self.connectivity_state)
+            if self.connectivity_state and self.connectivity_state.has_valid_proxies:
+                self.used_proxies = self.connectivity_state.get_valid_proxies(self.proxies)
+            else:
+                self.used_proxies = self.proxies
 
             # update counters
             previous_pps = self.requests_per_second

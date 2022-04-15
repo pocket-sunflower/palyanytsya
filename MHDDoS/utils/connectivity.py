@@ -14,7 +14,7 @@ from queue import Queue
 from socket import socket, AF_INET, SOCK_STREAM
 from threading import Thread
 from time import perf_counter, sleep
-from typing import Union, List
+from typing import List
 
 from PyRoxy import Proxy
 from icmplib import Host
@@ -22,7 +22,6 @@ from requests import Response, RequestException, get
 from yarl import URL
 
 from MHDDoS.methods.layer_7 import Layer7
-from MHDDoS.methods.methods import Methods
 from MHDDoS.utils.targets import Target
 from utils.misc import TimeInterval
 
@@ -54,7 +53,7 @@ class Connectivity(enum.IntEnum):
 
     @staticmethod
     def get_for_layer_4_proxied(layer_4_proxied: List[Host | None] | None) -> Connectivity:
-        if layer_4_proxied is None:
+        if not layer_4_proxied:
             return Connectivity.UNKNOWN
 
         all_connectivities = [Connectivity.get_for_layer_4(r) for r in layer_4_proxied]
@@ -81,7 +80,7 @@ class Connectivity(enum.IntEnum):
 
     @staticmethod
     def get_for_layer_7_proxied(layer_7_proxied: List[Response | RequestException | None] | None) -> Connectivity:
-        if layer_7_proxied is None:
+        if not layer_7_proxied:
             return Connectivity.UNKNOWN
 
         all_connectivities = [Connectivity.get_for_layer_7(r) for r in layer_7_proxied]
@@ -91,11 +90,12 @@ class Connectivity(enum.IntEnum):
 
 @dataclass
 class ConnectivityState:
+    timestamp: float
+    target: Target
     layer_7: Response | RequestException | None
     layer_4: Host | None
     layer_7_proxied: List[Response | RequestException]
     layer_4_proxied: List[Host]
-    timestamp: float
 
     def __post_init__(self):
         self.connectivity_l4: Connectivity = max(
@@ -106,6 +106,50 @@ class ConnectivityState:
             Connectivity.get_for_layer_7(self.layer_7),
             Connectivity.get_for_layer_7_proxied(self.layer_7_proxied)
         )
+
+        self.validated_proxies_indices: List[int] = []
+
+        if self.target.is_layer_4 and self.layer_4_proxied:
+            for i, result in enumerate(self.layer_4_proxied):
+                if Connectivity.get_for_layer_4(result):
+                    self.validated_proxies_indices.append(i)
+
+        if self.target.is_layer_7 and self.layer_7_proxied:
+            for i, result in enumerate(self.layer_7_proxied):
+                if Connectivity.get_for_layer_7(result):
+                    self.validated_proxies_indices.append(i)
+
+    @property
+    def uses_proxies(self) -> bool:
+        return bool(self.layer_4_proxied) or bool(self.layer_7_proxied)
+
+    @property
+    def has_valid_proxies(self) -> bool:
+        return self.valid_proxies_count > 0
+
+    @property
+    def valid_proxies_count(self) -> int: return len(self.validated_proxies_indices)
+
+    @property
+    def total_proxies_count(self) -> int:
+        if self.layer_4_proxied:
+            return len(self.layer_4_proxied)
+        if self.layer_7_proxied:
+            return len(self.layer_7_proxied)
+        return 0
+
+    def get_valid_proxies(self, original_proxies_list: List[Proxy]) -> List[Proxy]:
+        """
+        Returns a list of proxies which could connect to the target.
+        Requires the original proxy list that was used for this connectivity check.
+
+        Args:
+            original_proxies_list: Original proxy list used for validation.
+
+        Returns:
+            List of valid proxies.
+        """
+        return [original_proxies_list[i] for i in self.validated_proxies_indices]
 
 
 class ConnectivityUtils:
@@ -248,7 +292,12 @@ class ConnectivityChecker(Thread):
                  interval: float,
                  target: Target,
                  proxies: List[Proxy] | None,
-                 state_queue: Queue):
+                 state_queue: Queue,
+                 l4_retries=1,
+                 l4_timeout=2,
+                 l4_interval=0.2,
+                 l7_timeout=10,
+                 max_concurrent_connections: int = 1000):
         """
         Constantly checks connectivity_state of the given target and feeds results in the given Queue.
 
@@ -260,36 +309,49 @@ class ConnectivityChecker(Thread):
         """
         Thread.__init__(self, daemon=True)
 
+        stop_event = threading.Event()
+        stop_event.clear()
+        self._stop_event = stop_event
+
         self.interval = TimeInterval(interval)
         self.target = target
         self.proxies = proxies
         self.state_queue = state_queue
 
-        stop_event = threading.Event()
-        stop_event.clear()
-        self._stop_event = stop_event
+        self.l4_retries = l4_retries
+        self.l4_timeout = l4_timeout
+        self.l4_interval = l4_interval
+        self.l7_timeout = l7_timeout
+
+        self.max_concurrent_connections = max_concurrent_connections
 
     def run(self) -> None:
         while not self._stop_event.is_set():
+
             l4_result, l4_proxied_results = ConnectivityUtils.connectivity_check_layer_4(
                 ip=self.target.ip,
                 port=self.target.port,
                 proxies=self.proxies,
-                retries=1,
-                timeout=2,
-                interval=0.2
-            )
+                retries=self.l4_retries,
+                timeout=self.l4_timeout,
+                interval=self.l4_interval,
+                max_concurrent_connections=self.max_concurrent_connections
+            ) if self.target.is_layer_4 else (None, None)
+
             l7_response, l7_proxied_responses = ConnectivityUtils.connectivity_check_layer_7(
                 address=self.target.url,
                 proxies=self.proxies,
-                timeout=10
-            )
+                timeout=self.l7_timeout,
+                max_concurrent_connections=self.max_concurrent_connections
+            ) if self.target.is_layer_7 else (None, None)
+
             state = ConnectivityState(
+                timestamp=time.time(),
+                target=self.target,
                 layer_7=l7_response,
                 layer_4=l4_result,
                 layer_7_proxied=l7_proxied_responses,
                 layer_4_proxied=l4_proxied_results,
-                timestamp=time.time()
             )
             self.state_queue.put(state)
 
@@ -298,4 +360,3 @@ class ConnectivityChecker(Thread):
 
     def stop(self):
         self._stop_event.set()
-

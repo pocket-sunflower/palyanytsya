@@ -389,12 +389,16 @@ class GUI(Thread):
         window.add_content(table_string)
 
         # CONNECTIVITY INFO
-        table.clear()
-        self._add_header_to_connectivity_table(table, attack_state.target)
-        self._add_rows_to_connectivity_table(table, attack_state.target)
-        table_string = table.get_string()
-        table_string = self._color_table_row(0, table, table_string, term.black_on_cyan, term.cyan)
-        window.add_content(table_string)
+        if attack_state.connectivity_state is None:
+            tip = "Waiting for connectivity check results to arrive..."
+            window.add_content(tip)
+        else:
+            table.clear()
+            self._add_header_to_connectivity_table(table, attack_state.target)
+            self._add_rows_to_connectivity_table(table, attack_state.target)
+            table_string = table.get_string()
+            table_string = self._color_table_row(0, table, table_string, term.black_on_cyan, term.cyan)
+            window.add_content(table_string)
 
         window.center_content()
         window.redraw()
@@ -436,7 +440,7 @@ class GUI(Thread):
         if attack.has_connectivity_data:
             target_status_string = self._get_concise_target_connectivity_string(attack.target, attack.connectivity_state)
         else:
-            target_status_string = "Checking..."  # TODO: set this according to connectivity
+            target_status_string = term.webgray("Checking...")
 
         # methods
         if attack.attack_methods is None:
@@ -467,26 +471,31 @@ class GUI(Thread):
 
         # proxies
         proxies_string = ""
-        proxies_count = self._supervisor_state.proxies_count
+        n_proxies_total = self._supervisor_state.proxies_count
 
-        if proxies_count == 0:
+        if n_proxies_total == 0:
             proxies_string = term.webgray("Not used")
-        elif attack.proxy_validation_state is None:
-            proxies_string = term.webgray(f"Validating...")
         else:
-            n_validated_proxies = len(attack.proxy_validation_state.validated_proxies_indices)
-            n_used_proxies = attack.used_proxies_count
-            n_total_proxies = attack.total_proxies_count
-            n_unused_proxies = n_total_proxies - n_used_proxies
+            n_validated_proxies = attack.connectivity_state.valid_proxies_count if attack.connectivity_state else 0
+            n_proxies_used = attack.used_proxies_count
+            n_proxies_total = attack.total_proxies_count
+            n_proxies_ignored = n_proxies_total - n_proxies_used
 
-            if n_used_proxies > 0:
-                proxies_string += f"{term.green(f'{n_used_proxies} valid')}\n"
-
-            if attack.proxy_validation_state.is_validating:
-                progress = attack.proxy_validation_state.progress
-                proxies_string += f"{term.lightcyan(f'Validating {progress * 100:.0f}%')}"  # TODO: use progress bar instead
+            if n_proxies_used > 0:
+                color = term.green if (attack.connectivity_state and attack.connectivity_state.has_valid_proxies) else term.white
+                proxies_string += f"{color(f'{n_proxies_used} used')}\n"
             else:
-                proxies_string += f"{term.webgray(f'{n_unused_proxies} unused')}"
+                proxies_string += f"{term.red(f'None used')}\n"
+
+            # if n_proxies_ignored:
+            #     proxies_string += f"{term.webgray(f'{n_proxies_ignored} ignored')}"
+
+            proxies_string += f"{term.webgray(f'from {n_proxies_total}')}"
+
+            # if attack.proxy_validation_state.is_validating:
+            #     progress = attack.proxy_validation_state.progress
+            #     proxies_string += f"{term.lightcyan(f'Validating {progress * 100:.0f}%')}"  # TODO: use progress bar instead
+            # else:
 
         row_entries = [
             attack.target,
@@ -542,7 +551,8 @@ class GUI(Thread):
         elif c == Connectivity.PARTIALLY_REACHABLE:
             s = "Partially\nreachable \n(suffering)"
         elif c == Connectivity.REACHABLE:
-            s = "Reachable"
+            s = "Reachable\n"
+            s += f"(through {connectivity_state.valid_proxies_count} proxies)"
         else:
             s = "Unknown"
 
@@ -568,10 +578,10 @@ class GUI(Thread):
     # TARGET STATUS VIEW
 
     def _add_header_to_connectivity_table(self, table: PrettyTable, target: Target) -> None:
+        layer_string = "Layer 4" if target.is_layer_4 else "Layer 7" if target.is_layer_7 else "[INVALID TARGET]"
         connectivity_table_columns = [
             "Proxy",
-            "Layer 4",  # if target.is_layer_4 else "Layer 7" if target.is_layer_7 else "[INVALID TARGET]"
-            "Layer 7"
+            layer_string
         ]
         table.add_row(connectivity_table_columns)
 
@@ -638,6 +648,13 @@ class GUI(Thread):
 
             return message
 
+        def get_connectivity_string(layer_4: Host | None, layer_7: Response | RequestException) -> str:
+            if target.is_layer_4:
+                return get_connectivity_string_l4(layer_4)
+            if target.is_layer_7:
+                return get_connectivity_string_l7(layer_7)
+            return term.webgray("UNKNOWN")
+
         if not attack_state.is_using_proxies:
             no_proxy_string = color_text(f"DIRECT\n(no proxy)", term.webgray)
 
@@ -646,19 +663,27 @@ class GUI(Thread):
 
             row = [
                 no_proxy_string,
-                get_connectivity_string_l4(connectivity.layer_4),
-                get_connectivity_string_l7(connectivity.layer_7),
+                get_connectivity_string(connectivity.layer_4, connectivity.layer_7),
             ]
             table.add_row(row)
-        else:
-            for i in range(len(connectivity.layer_4_proxied)):
+        elif target.is_layer_4:
+            for i, layer_4 in enumerate(connectivity.layer_4_proxied):
                 # TODO: display proxy address
                 proxy_string = f"Proxy {i + 1}"
                 proxy_string = color_text(proxy_string, term.cyan)
                 row = [
                     proxy_string,
-                    get_connectivity_string_l4(connectivity.layer_4_proxied[i]),
-                    get_connectivity_string_l7(connectivity.layer_7_proxied[i]),
+                    get_connectivity_string_l4(layer_4)
+                ]
+                table.add_row(row)
+        elif target.is_layer_7:
+            for i, layer_7 in enumerate(connectivity.layer_7_proxied):
+                # TODO: display proxy address
+                proxy_string = f"Proxy {i + 1}"
+                proxy_string = color_text(proxy_string, term.cyan)
+                row = [
+                    proxy_string,
+                    get_connectivity_string_l7(layer_7)
                 ]
                 table.add_row(row)
 
