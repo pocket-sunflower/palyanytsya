@@ -20,7 +20,7 @@ from MHDDoS.methods.tools import Tools
 from MHDDoS.utils.config_files import read_configuration_file_lines
 from MHDDoS.utils.connectivity import ConnectivityState, ConnectivityChecker
 from MHDDoS.utils.misc import Counter, get_last_from_queue
-from MHDDoS.utils.proxies import ProxiesValidationState, ProxiesValidator, load_proxies
+from MHDDoS.utils.proxies import load_proxies
 from MHDDoS.utils.targets import Target
 from utils.logs import get_logger_for_current_process
 
@@ -32,7 +32,7 @@ class AttackError(Exception):
     pass
 
 
-@dataclass
+@dataclass(slots=True, order=True, frozen=True)
 class AttackState:
     # identification
     attack_pid: int
@@ -48,7 +48,6 @@ class AttackState:
     # proxies
     total_proxies_count: int = 0
     used_proxies_count: int = 0
-    proxy_validation_state: ProxiesValidationState | None = None
 
     @property
     def is_using_proxies(self): return (self.total_proxies_count > 0) and (self.used_proxies_count > 0)
@@ -93,8 +92,6 @@ class Attack(Process):
 
     # PROXIES
     PROXIES_CHECK_INTERVAL = 120  # TODO: make this a parameter of attack()?
-    proxies_validator_thread: ProxiesValidator = None
-    proxies_validation_state: ProxiesValidationState = None
     used_proxies: List[Proxy] = None
 
     # COUNTERS
@@ -180,10 +177,11 @@ class Attack(Process):
 
         # START CONNECTIVITY CHECKER THREAD
         self.connectivity_checker_thread = ConnectivityChecker(
-            self.CONNECTIVITY_CHECK_INTERVAL,
-            self.target,
-            self.proxies,
-            connectivity_state_queue
+            interval=self.CONNECTIVITY_CHECK_INTERVAL,
+            target=self.target,
+            proxies=self.proxies,
+            state_queue=connectivity_state_queue,
+            max_concurrent_connections=100
         )
         self.connectivity_checker_thread.start()
 
@@ -360,7 +358,6 @@ class Attack(Process):
 
             total_proxies_count=len(self.proxies),
             used_proxies_count=len(self.used_proxies),
-            proxy_validation_state=self.proxies_validation_state,
             connectivity_state=self.connectivity_state,
 
             total_requests_sent=int(self.total_requests_counter),

@@ -88,36 +88,42 @@ class Connectivity(enum.IntEnum):
         return best_connectivity
 
 
-@dataclass
+@dataclass(slots=True, order=True, frozen=True)
 class ConnectivityState:
     timestamp: float
     target: Target
+
     layer_7: Response | RequestException | None
     layer_4: Host | None
     layer_7_proxied: List[Response | RequestException]
     layer_4_proxied: List[Host]
 
     def __post_init__(self):
-        self.connectivity_l4: Connectivity = max(
+        connectivity_l4: Connectivity = max(
             Connectivity.get_for_layer_4(self.layer_4),
             Connectivity.get_for_layer_4_proxied(self.layer_4_proxied)
         )
-        self.connectivity_l7: Connectivity = max(
+        object.__setattr__(self, 'connectivity_l4', connectivity_l4)
+
+        connectivity_l7: Connectivity = max(
             Connectivity.get_for_layer_7(self.layer_7),
             Connectivity.get_for_layer_7_proxied(self.layer_7_proxied)
         )
+        object.__setattr__(self, 'connectivity_l7', connectivity_l7)
 
-        self.validated_proxies_indices: List[int] = []
+        validated_proxies_indices: List[int] = []
 
         if self.target.is_layer_4 and self.layer_4_proxied:
             for i, result in enumerate(self.layer_4_proxied):
                 if Connectivity.get_for_layer_4(result):
-                    self.validated_proxies_indices.append(i)
+                    validated_proxies_indices.append(i)
 
         if self.target.is_layer_7 and self.layer_7_proxied:
             for i, result in enumerate(self.layer_7_proxied):
                 if Connectivity.get_for_layer_7(result):
-                    self.validated_proxies_indices.append(i)
+                    validated_proxies_indices.append(i)
+
+        object.__setattr__(self, 'validated_proxies_indices', validated_proxies_indices)
 
     @property
     def uses_proxies(self) -> bool:
@@ -171,6 +177,8 @@ class ConnectivityUtils:
                     # print(f"proxy {proxy.host}:{proxy.port} - rtt {duration}")
             except OSError as e:  # https://docs.python.org/3/library/socket.html#exceptions
                 # print(f"proxy {proxy.host}:{proxy.port} - {e}")
+                pass
+            except Exception as e:
                 pass
 
         return Host(ip, retries, round_trip_times)
