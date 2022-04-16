@@ -455,23 +455,17 @@ class Attack(Process):
             logger.info("Stopping attack threads...")
             for event in self.attack_threads_stop_events:
                 event.set()
-        if self.proxies_validator_thread:
-            self.proxies_validator_thread.stop()
-            logger.info("Stopping proxies validator...")
-        if self.connectivity_checker_thread:
-            self.connectivity_checker_thread.stop()
-            logger.info("Stopping connectivity monitor...")
-
         if self.attack_threads:
             for attack_thread in self.attack_threads:
                 attack_thread.join()
             logger.info("Attack threads stopped.")
+
+        if self.connectivity_checker_thread:
+            self.connectivity_checker_thread.stop()
+            logger.info("Stopping connectivity monitor...")
         if self.connectivity_checker_thread:
             self.connectivity_checker_thread.join()
             logger.info("Connectivity monitor stopped.")
-        if self.proxies_validator_thread:
-            self.proxies_validator_thread.join()
-            logger.info("Proxies validator stopped.")
 
         logger.info("Attack process finished.")
 

@@ -9,7 +9,7 @@ import threading
 import time
 from _socket import IPPROTO_TCP, SHUT_RDWR
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from queue import Queue
 from socket import socket, AF_INET, SOCK_STREAM
 from threading import Thread
@@ -97,6 +97,11 @@ class ConnectivityState:
     layer_4: Host | None
     layer_7_proxied: List[Response | RequestException]
     layer_4_proxied: List[Host]
+
+    connectivity_l4: Connectivity = Connectivity.UNKNOWN
+    connectivity_l7: Connectivity = Connectivity.UNKNOWN
+
+    validated_proxies_indices: List[int] = field(default_factory=list)
 
     def __post_init__(self):
         connectivity_l4: Connectivity = max(

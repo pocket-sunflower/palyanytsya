@@ -1,6 +1,7 @@
 import math
 import threading
 import time
+import traceback
 from multiprocessing import Queue
 from threading import Thread
 from typing import Callable
@@ -16,7 +17,7 @@ from MHDDoS.methods.tools import Tools
 from MHDDoS.utils.connectivity import Connectivity, ConnectivityState
 from MHDDoS.utils.misc import get_last_from_queue
 from MHDDoS.utils.targets import Target
-from utils.blessed_utils import BlessedWindow, print_and_flush, ScreenResizeHandler, text_width, pad_text_to_box, KeyboardListener, wrap_text_in_border, color_text
+from utils.blessed_utils import BlessedWindow, print_and_flush, ScreenResizeHandler, KeyboardListener, TextUtils
 from utils.input_args import Arguments
 from utils.logs import get_logger_for_current_process
 from utils.misc import TimeInterval
@@ -149,16 +150,24 @@ class GUI(Thread):
                     self.redraw()
                     time.sleep(self._update_interval)
         except Exception as e:
-            # print_and_flush(term.clear)
-            # print_and_flush(pad_text_to_box("", term.width, term.height, term))
+            print_and_flush(term.clear)
+            print_and_flush(term.black_on_red(" Exception in GUI thread: \n\n"))
+            trace = traceback.format_exc()
+            print_and_flush(term.red(trace))
+            # print_and_flush(TextUtils.pad_to_box("", term.width, term.height))
+            # with term.location(term.width, term.height):
             # print_and_flush(term.black_on_red(e))
-            raise e
+            # while True:
+            #     print_and_flush(term.black_on_red("hello"))
+            #     time.sleep(0.5)
+            raise SystemExit
         except (KeyboardInterrupt, SystemExit) as e:
-            raise e
+            # raise e
+            pass
         finally:
             # print_and_flush("\n")
-            self._keyboard_listener.stop()
-            self.logger.info("GUI exited.")
+            # self._keyboard_listener.stop()
+            self.logger.info("GUI thread exited.")
 
     def stop(self):
         self._stop_event.set()
@@ -193,6 +202,7 @@ class GUI(Thread):
         start = time.perf_counter()
 
         self._draw_flair()
+
         self._draw_supervisor()
 
         if self._is_in_target_status_view:
@@ -225,8 +235,8 @@ class GUI(Thread):
         window.clear_content()
 
         flair_text = get_flair_string(term)
-        flair_text_width = text_width(flair_text, term)
-        flair_text = pad_text_to_box(flair_text, flair_text_width, window.height, term)
+        flair_text_width = TextUtils.width(flair_text)
+        flair_text = TextUtils.pad_to_box(flair_text, flair_text_width, window.height)
 
         gradient_steps_count = len(gradient)
         non_flair_text_width = window.width - flair_text_width
@@ -298,11 +308,11 @@ class GUI(Thread):
 
         if self._supervisor_state is None:
             s = " Waiting for supervisor to initialize... "
-            s = wrap_text_in_border(s, term)
+            s = TextUtils.wrap_in_border(s)
             window.add_content(s)
         elif not self._is_attacks_info_available:
             s = " Waiting for attack processes to start... "
-            s = wrap_text_in_border(s, term)
+            s = TextUtils.wrap_in_border(s)
             window.add_content(s)
         else:
             # header
@@ -335,9 +345,9 @@ class GUI(Thread):
             else:
                 header_o += ": NO ATTACKS RUNNING"
         header_o = f" {header_o} "
-        header_o = wrap_text_in_border(header_o, term)
+        header_o = TextUtils.wrap_in_border(header_o)
         if not self._is_in_attacks_view:
-            header_o = color_text(header_o, inactive_color)
+            header_o = TextUtils.color(header_o, inactive_color)
 
         # DETAILS HEADER
         index = self._selected_attack_index
@@ -345,9 +355,9 @@ class GUI(Thread):
         if self._is_in_target_status_view:
             header_d += f": ATTACK {index + 1}/{self._supervisor_state.attack_processes_count}"
         header_d = f" {header_d} "
-        header_d = wrap_text_in_border(header_d, term)
+        header_d = TextUtils.wrap_in_border(header_d)
         if not self._is_in_target_status_view:
-            header_d = color_text(header_d, inactive_color)
+            header_d = TextUtils.color(header_d, inactive_color)
 
         # JOIN HEADERS
         header_o_split = header_o.split("\n")
@@ -448,10 +458,10 @@ class GUI(Thread):
         elif len(attack.attack_methods) == 0:
             attack_methods_string = "0 (no valid \n" \
                                     "methods found)"
-            attack_methods_string = color_text(attack_methods_string, term.red)
+            attack_methods_string = TextUtils.color(attack_methods_string, term.red)
         else:
             attack_methods_string = "\n".join(attack.attack_methods)
-            attack_methods_string = color_text(attack_methods_string, term.cyan)
+            attack_methods_string = TextUtils.color(attack_methods_string, term.cyan)
 
         # requests
         rps = f"{Tools.humanformat(attack.requests_per_second)} r/s"
@@ -556,7 +566,7 @@ class GUI(Thread):
         else:
             s = "Unknown"
 
-        s = color_text(s, color)
+        s = TextUtils.color(s, color)
 
         return color(s)
 
@@ -614,7 +624,7 @@ class GUI(Thread):
                 color = term.webgray
                 message = color(f"UNKNOWN")
 
-            message = color_text(message, color)
+            message = TextUtils.color(message, color)
 
             return message
 
@@ -644,7 +654,7 @@ class GUI(Thread):
                 color = term.webgray
                 message = f"UNKNOWN"
 
-            message = color_text(message, color)
+            message = TextUtils.color(message, color)
 
             return message
 
@@ -656,7 +666,7 @@ class GUI(Thread):
             return term.webgray("UNKNOWN")
 
         if not attack_state.is_using_proxies:
-            no_proxy_string = color_text(f"DIRECT\n(no proxy)", term.webgray)
+            no_proxy_string = TextUtils.color(f"DIRECT\n(no proxy)", term.webgray)
 
             # if target.is_layer_4:
             #     con
@@ -670,7 +680,7 @@ class GUI(Thread):
             for i, layer_4 in enumerate(connectivity.layer_4_proxied):
                 # TODO: display proxy address
                 proxy_string = f"Proxy {i + 1}"
-                proxy_string = color_text(proxy_string, term.cyan)
+                proxy_string = TextUtils.color(proxy_string, term.cyan)
                 row = [
                     proxy_string,
                     get_connectivity_string_l4(layer_4)
@@ -680,7 +690,7 @@ class GUI(Thread):
             for i, layer_7 in enumerate(connectivity.layer_7_proxied):
                 # TODO: display proxy address
                 proxy_string = f"Proxy {i + 1}"
-                proxy_string = color_text(proxy_string, term.cyan)
+                proxy_string = TextUtils.color(proxy_string, term.cyan)
                 row = [
                     proxy_string,
                     get_connectivity_string_l7(layer_7)

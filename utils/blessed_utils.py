@@ -7,97 +7,106 @@ from blessed import Terminal
 from blessed.keyboard import Keystroke
 
 
-def text_width(text: str, term: Terminal) -> int:
-    width = 0
-    for line in text.split("\n"):
-        line = term.strip_seqs(line)
-        if len(line) > width:
-            width = len(line)
-    return width
+class TextUtils:
+    term = Terminal()
 
+    @staticmethod
+    def width(text: str) -> int:
+        term = TextUtils.term
+        width = 0
+        for line in text.split("\n"):
+            line = term.strip_seqs(line)
+            if len(line) > width:
+                width = len(line)
+        return width
 
-def text_height(text: str) -> int:
-    height = 1 + text.count("\n")
-    return height
+    @staticmethod
+    def height(text: str) -> int:
+        height = 1 + text.count("\n")
+        return height
 
+    @staticmethod
+    def truncate_horizontal(text: str, width: int) -> str:
+        term = TextUtils.term
+        return "\n".join([term.truncate(line, width) for line in text.split("\n")])
 
-def truncate_text_horizontal(text: str, width: int, term: Terminal) -> str:
-    return "\n".join([term.truncate(line, width) for line in text.split("\n")])
+    @staticmethod
+    def truncate_vertical(text: str, height: int) -> str:
+        lines = text.split("\n")
+        height = max(0, height)
+        lines = lines[:height]
+        return "\n".join(lines)
 
-
-def truncate_text_vertical(text: str, height: int, term: Terminal) -> str:
-    lines = text.split("\n")
-    height = max(0, height)
-    lines = lines[:height]
-    return "\n".join(lines)
-
-
-def truncate_text_to_box(text: str, width: int, height: int, term: Terminal) -> str:
-    text = truncate_text_vertical(text, height, term)
-    text = truncate_text_horizontal(text, width, term)
-    return text
-
-
-def color_text(text: str, color: Callable[[str], str] | None) -> str:
-    if color is None:
+    @staticmethod
+    def truncate_to_box(text: str, width: int, height: int) -> str:
+        text = TextUtils.truncate_vertical(text, height)
+        text = TextUtils.truncate_horizontal(text, width)
         return text
 
-    text = "\n".join([color(m) for m in text.split("\n")])
-    return text
+    @staticmethod
+    def color(text: str, color: Callable[[str], str] | None) -> str:
+        if color is None:
+            return text
 
+        text = "\n".join([color(m) for m in text.split("\n")])
+        return text
 
-def pad_text_to_itself(text: str, term: Terminal):
-    text_h = text_height(text)
-    text_w = text_width(text, term)
-    return pad_text_to_box(text, text_w, text_h, term)
+    @staticmethod
+    def pad_to_itself(text: str):
+        text_h = TextUtils.height(text)
+        text_w = TextUtils.width(text)
+        return TextUtils.pad_to_box(text, text_w, text_h)
 
+    @staticmethod
+    def pad_to_box(text: str,
+                   width: int,
+                   height: int,
+                   fillchar: str = " ",
+                   offset_x: int = None,
+                   offset_y: int = None,
+                   top: int = None,
+                   left: int = None,
+                   right: int = None,
+                   bottom: int = None) -> str:
+        term = TextUtils.term
+        text_h = TextUtils.height(text)
+        text = "\n".join([term.ljust(line, width, fillchar) for line in text.split("\n")])
+        if height > text_h:
+            text.removesuffix("\n")
+            remaining_lines_count = height - text_h
+            text += ("\n" + width * " ") * remaining_lines_count
+        return text
 
-def pad_text_to_box(text: str,
-                    width: int,
-                    height: int,
-                    term: Terminal,
-                    fillchar: str = " ",
-                    top: int = None,
-                    left: int = None,
-                    right: int = None,
-                    bottom: int = None) -> str:
-    text_h = text_height(text)
-    text = "\n".join([term.ljust(line, width, fillchar) for line in text.split("\n")])
-    if height > text_h:
-        text.removesuffix("\n")
-        remaining_lines_count = height - text_h
-        text += ("\n" + width * " ") * remaining_lines_count
-    return text
+    @staticmethod
+    def wrap_in_border(text: str,
+                       vertical_char="│",
+                       horizontal_char="─",
+                       top_left_char="╭",
+                       top_right_char="╮",
+                       bottom_left_char="╰",
+                       bottom_right_char="╯"):
+        text = TextUtils.pad_to_itself(text)
+        text_w = TextUtils.width(text)
+        lines = text.split("\n")
+        border_top = top_left_char + horizontal_char * text_w + top_right_char
+        for i in range(len(lines)):
+            lines[i] = vertical_char + lines[i] + vertical_char
+        border_bottom = bottom_left_char + horizontal_char * text_w + bottom_right_char
+        bordered = border_top + "\n" + "\n".join(lines) + "\n" + border_bottom
+        return bordered
 
-
-def wrap_text_in_border(text: str,
-                        term: Terminal,
-                        vertical_char="│",
-                        horizontal_char="─",
-                        top_left_char="╭",
-                        top_right_char="╮",
-                        bottom_left_char="╰",
-                        bottom_right_char="╯"):
-    text = pad_text_to_itself(text, term)
-    text_w = text_width(text, term)
-    lines = text.split("\n")
-    border_top = top_left_char + horizontal_char * text_w + top_right_char
-    for i in range(len(lines)):
-        lines[i] = vertical_char + lines[i] + vertical_char
-    border_bottom = bottom_left_char + horizontal_char * text_w + bottom_right_char
-    bordered = border_top + "\n" + "\n".join(lines) + "\n" + border_bottom
-    return bordered
-
-
-def center_text(text: str, term: Terminal, width: int = None) -> str:
-    text_h = text_height(text)
-    text_w = text_width(text, term)
-    text = pad_text_to_box(text, text_h, text_w, term)
-    return "\n".join([term.center(line, width) for line in text.split("\n")])
+    @staticmethod
+    def center(text: str,
+               width: int = None) -> str:
+        term = TextUtils.term
+        text_h = TextUtils.height(text)
+        text_w = TextUtils.width(text)
+        text = TextUtils.pad_to_box(text, text_h, text_w)
+        return "\n".join([term.center(line, width) for line in text.split("\n")])
 
 
 def print_and_flush(string: str):
-    print(string, end="", flush=True)
+    print(str(string), end="", flush=True)
 
 
 def clear_screen(term: Terminal):
@@ -252,13 +261,13 @@ class BlessedWindow:
         self._content_buffer = string
 
     def add_content(self, string: str):
-        string = pad_text_to_itself(string, self._term)
+        string = TextUtils.pad_to_itself(string)
         if len(self._content_buffer) > 0:
             self._content_buffer += "\n"
         self._content_buffer += string
 
     def center_content(self):
-        self._content_buffer = center_text(self._content_buffer, self._term, self.width_for_content)
+        self._content_buffer = TextUtils.center(self._content_buffer, self.width_for_content)
 
     def redraw(self):
         term = self._term
@@ -269,10 +278,10 @@ class BlessedWindow:
 
         # crop content to fit in window
         content = self._content_buffer
-        content = truncate_text_to_box(content, width, height, self._term)
-        content = pad_text_to_box(content, width, height, self._term)
+        content = TextUtils.truncate_to_box(content, width, height)
+        content = TextUtils.pad_to_box(content, width, height)
         if self.has_borders:
-            content = wrap_text_in_border(content, term)
+            content = TextUtils.wrap_in_border(content)
         if self.background_color is not None:
             content = self.background_color(content)
 
