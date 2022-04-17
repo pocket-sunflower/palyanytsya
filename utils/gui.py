@@ -1,5 +1,4 @@
 import math
-import random
 import threading
 import time
 import traceback
@@ -18,7 +17,7 @@ from MHDDoS.methods.tools import Tools
 from MHDDoS.utils.connectivity import Connectivity, ConnectivityState
 from MHDDoS.utils.misc import get_last_from_queue
 from MHDDoS.utils.targets import Target
-from utils.blessed_utils import Window, print_and_flush, KeyboardListener, TextUtils, DrawableRectStack, Drawable, ScreenResizeListener
+from utils.blessed_utils import Window, print_no_newline, KeyboardListener, TextUtils, DrawableRectStack, Drawable, ScreenResizeListener
 from utils.input_args import Arguments
 from utils.logs import get_logger_for_current_process
 from utils.misc import TimeInterval
@@ -65,7 +64,6 @@ class GUI(Thread, Drawable):
     # INTERACTIONS
     _keyboard_listener: KeyboardListener
     _selected_attack_index: int | None = 0
-    _is_in_target_status_view: bool = False
 
     SUPERVISOR_HEIGHT = 1
     FLAIR_HEIGHT = 12
@@ -114,48 +112,70 @@ class GUI(Thread, Drawable):
 
         all_gui_elements = []
 
-        flair_window = Window(term,
-                              content_update_callback=self._draw_flair,
-                              # change_callback=lambda: False,
-                              change_callback=lambda: self._flair_update_interval.check_if_has_passed()
-                              )
+        flair_window = Window(
+            term,
+            content_update_callback=self._draw_flair,
+            change_callback=lambda: self._flair_update_interval.check_if_has_passed()
+        )
         flair_window.max_height = self.FLAIR_HEIGHT
         flair_window.max_width = self.MAX_GUI_WIDTH
         all_gui_elements.append(flair_window)
 
-        supervisor_window = Window(term,
-                                   content_update_callback=self._draw_supervisor,
-                                   # change_callback=lambda: False,
-                                   change_callback=lambda: self._supervisor_state
-                                   )
+        supervisor_window = Window(
+            term,
+            content_update_callback=self._draw_supervisor,
+            change_callback=lambda: self._supervisor_state
+        )
         supervisor_window.max_height = self.SUPERVISOR_HEIGHT
         all_gui_elements.append(supervisor_window)
 
-        header_window = Window(term,
-                               content_update_callback=self._draw_header,
-                               # change_callback=lambda: False,
-                               change_callback=lambda: (self._is_in_target_status_view, self._supervisor_state)
-                               )
+        header_window = Window(
+            term,
+            content_update_callback=self._draw_header,
+            change_callback=lambda: (
+                self._is_in_target_status_view,
+                self._supervisor_state)
+        )
         header_window.max_height = 3
         all_gui_elements.append(header_window)
 
-        attacks_window = Window(term,
-                                content_update_callback=self._draw_attacks,
-                                # change_callback=lambda: False,
-                                change_callback=lambda: self._supervisor_state.attack_states if self._supervisor_state else []
-                                )
-        all_gui_elements.append(attacks_window)
+        attacks_window = Window(
+            term,
+            content_update_callback=self._draw_attacks,
+            change_callback=lambda: (
+                self._supervisor_state.attack_states if self._supervisor_state else []
+            )
+        )
+        self._attacks_view = DrawableRectStack(
+            term,
+            rects=[
+                attacks_window
+            ]
+        )
+        all_gui_elements.append(self._attacks_view)
 
-        # target_status_window = Window(term, redraw_callback=self._draw_target_status)
-        # target_status_window.pos_y = self.FLAIR_HEIGHT + self.SUPERVISOR_HEIGHT
-        # target_status_window.max_width = self.MAX_GUI_WIDTH
-        # stack_windows.append(target_status_window)
+        target_status_window = Window(
+            term,
+            content_update_callback=self._draw_target_status,
+            change_callback=lambda: (
+                self._supervisor_state.attack_states if self._supervisor_state else [],
+                self._selected_attack_index
+            )
+        )
+        self._target_status_view = DrawableRectStack(
+            term,
+            rects=[
+                target_status_window
+            ]
+        )
+        self._target_status_view.enabled = False
+        all_gui_elements.append(self._target_status_view)
 
-        nav_tips_window = Window(term,
-                                 content_update_callback=self._draw_nav_tips,
-                                 # change_callback=lambda: False,
-                                 change_callback=lambda: self._is_in_target_status_view
-                                 )
+        nav_tips_window = Window(
+            term,
+            content_update_callback=self._draw_nav_tips,
+            change_callback=lambda: self._is_in_target_status_view
+        )
         nav_tips_window.max_height = 1
         all_gui_elements.append(nav_tips_window)
 
@@ -164,7 +184,7 @@ class GUI(Thread, Drawable):
             rects=all_gui_elements
         )
         self._gui_stack.max_width = self.MAX_GUI_WIDTH
-        self._gui_stack._debug = False
+        self._gui_stack._debug = True
 
         # INTERACTIONS
 
@@ -174,7 +194,7 @@ class GUI(Thread, Drawable):
     def run(self):
         try:
             with term.fullscreen(), term.cbreak(), term.hidden_cursor():
-                print_and_flush(term.home + term.clear)
+                print_no_newline(term.home + term.clear)
 
                 while not self._stop_event.is_set():
                     self._update_supervisor_state()
@@ -184,10 +204,10 @@ class GUI(Thread, Drawable):
 
                     time.sleep(self._update_interval)
         except Exception as e:
-            print_and_flush(term.clear)
-            print_and_flush(term.black_on_red(" Exception in GUI thread: \n\n"))
+            print_no_newline(term.clear)
+            print_no_newline(term.black_on_red(" Exception in GUI thread: \n\n"))
             trace = traceback.format_exc()
-            print_and_flush(term.red(trace))
+            print_no_newline(term.red(trace))
             # print_and_flush(TextUtils.pad_to_box("", term.width, term.height))
             # with term.location(term.width, term.height):
             # print_and_flush(term.black_on_red(e))
@@ -225,8 +245,12 @@ class GUI(Thread, Drawable):
         return True
 
     @property
+    def _is_in_target_status_view(self) -> bool:
+        return self._target_status_view.enabled
+
+    @property
     def _is_in_attacks_view(self) -> bool:
-        return not self._is_in_target_status_view
+        return self._attacks_view.enabled
 
     # DRAWING METHODS
 
@@ -242,7 +266,7 @@ class GUI(Thread, Drawable):
         time_sting = term.black_on_green(time_sting)
         width = term.length(time_sting)
         with term.location(term.width - width, term.height):
-            print_and_flush(term.rjust(time_sting, width))
+            print_no_newline(term.rjust(time_sting, width))
 
         # if self._ui_update_interval.check_if_has_passed():
 
@@ -390,7 +414,7 @@ class GUI(Thread, Drawable):
             return
 
         if self._selected_attack_index > len(self._supervisor_state.attack_states) - 1:
-            self._is_in_target_status_view = False
+            window.enabled = False
             return
 
         attack_state = self._supervisor_state.attack_states[self._selected_attack_index]
@@ -779,10 +803,12 @@ class GUI(Thread, Drawable):
                     self._switch_to_attacks_view()
 
     def _switch_to_attacks_view(self):
-        self._is_in_target_status_view = False
+        self._attacks_view.enabled = True
+        self._target_status_view.enabled = False
 
     def _switch_to_target_status_view(self):
-        self._is_in_target_status_view = True
+        self._attacks_view.enabled = False
+        self._target_status_view.enabled = True
 
     def _select_next_attack(self):
         if not self._is_attacks_info_available:

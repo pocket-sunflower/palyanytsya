@@ -11,6 +11,14 @@ from blessed import Terminal
 from blessed.keyboard import Keystroke
 
 
+def print_no_newline(string: str):
+    print(str(string), end="", flush=True)
+
+
+def clear_screen(term: Terminal):
+    print_no_newline(term.home + term.clear)
+
+
 class TextUtils:
     term = Terminal()
 
@@ -109,14 +117,6 @@ class TextUtils:
         return "\n".join([term.center(line, width) for line in text.split("\n")])
 
 
-def print_and_flush(string: str):
-    print(str(string), end="", flush=True)
-
-
-def clear_screen(term: Terminal):
-    print_and_flush(term.home + term.clear)
-
-
 class KeyboardListener:
     """Provides a way to capture key presses in terminal."""
     _term: Terminal
@@ -210,7 +210,7 @@ class ScreenResizeListener:
 
             if self.debug_display:
                 with term.location(0, 0):
-                    print_and_flush(term.black_on_pink(f" Terminal size: {width}x{height} "))
+                    print_no_newline(term.black_on_pink(f" Terminal size: {width}x{height} "))
 
             time.sleep(self.refresh_interval)
 
@@ -219,27 +219,38 @@ class ScreenResizeListener:
 
 
 class Drawable:
-    enabled: bool = True
+    _is_enabled: bool = True
 
     _is_force_redrawing: bool = False
     _debug: bool = False
     _draw_count: int = 0
 
-    def redraw(self):
+    @property
+    def enabled(self) -> bool: return self._is_enabled
+
+    @enabled.setter
+    def enabled(self, new_value: bool) -> None:
+        self._is_enabled = new_value
+        self._on_is_enabled_changed(new_value)
+
+    def _on_is_enabled_changed(self, new_value: bool):
+        pass
+
+    def redraw(self) -> None:
         if self.enabled:
             self._redraw_implementation()
             self._draw_count += 1
             self._is_force_redrawing = False
 
-    def force_redraw(self):
+    def force_redraw(self) -> None:
         self._is_force_redrawing = True
         self.redraw()
 
-    def _redraw_child(self, child_drawable: Drawable):
+    def _redraw_child(self, child_drawable: Drawable) -> None:
         child_drawable._is_force_redrawing = self._is_force_redrawing
         child_drawable.redraw()
 
-    def _redraw_implementation(self):
+    def _redraw_implementation(self) -> None:
         pass
 
 
@@ -397,7 +408,7 @@ class Window(DrawableRect):
         self._last_drawn_buffer = content
 
         with term.location(self.pos_x, self.pos_y):
-            print_and_flush(self._last_drawn_buffer)
+            print_no_newline(self._last_drawn_buffer)
 
         # debug
         if self._debug:
@@ -405,7 +416,7 @@ class Window(DrawableRect):
                 draw_indicator = "|" if (self._draw_count % 2 == 1) else "─"
                 was_forced = " FORCED" if self._is_force_redrawing else ""
                 debug_string = term.black_on_pink(f" Window {self.width}x{self.height} at {self.position} {draw_indicator}{was_forced} ")
-                print_and_flush(debug_string)
+                print_no_newline(debug_string)
 
 
 class DrawableRectStack(DrawableRect):
@@ -419,6 +430,10 @@ class DrawableRectStack(DrawableRect):
 
         self._rects = rects
 
+    def _on_is_enabled_changed(self, new_value: bool):
+        for rect in self._rects:
+            rect.enabled = new_value
+
     def _redraw_implementation(self):
         term = self._term
 
@@ -426,11 +441,14 @@ class DrawableRectStack(DrawableRect):
         for rect in self._rects:
             rect._debug = self._debug
 
+        # use only enabled rects
+        enabled_rects = [x for x in self._rects if x.enabled]
+
         # calculate minimum height required by child rects
         height = self.height
         used_height = 0
         unconstrained_rects_indices = []
-        for i, rect in enumerate(self._rects):
+        for i, rect in enumerate(enabled_rects):
             if rect.max_height is None:
                 unconstrained_rects_indices.append(i)
                 continue
@@ -443,21 +461,21 @@ class DrawableRectStack(DrawableRect):
 
         # apply max_height to every unconstrained rect
         for i in unconstrained_rects_indices:
-            self._rects[i].max_height = height_per_unconstrained_rect
+            enabled_rects[i].max_height = height_per_unconstrained_rect
 
         # update positions
-        pos_y = 0
-        for i, rect in enumerate(self._rects):
+        pos_y = self.pos_y
+        for i, rect in enumerate(enabled_rects):
             rect.pos_x = self.pos_x
             rect.pos_y = pos_y
             pos_y += rect.height
 
         # limit max width
-        for i, rect in enumerate(self._rects):
+        for i, rect in enumerate(enabled_rects):
             rect.max_width = self.width
 
         # render
-        for i, rect in enumerate(self._rects):
+        for i, rect in enumerate(enabled_rects):
             self._redraw_child(rect)
 
         # restore unconstrained rects max_heights
@@ -466,11 +484,20 @@ class DrawableRectStack(DrawableRect):
 
         # debug
         if self._debug:
+            string = term.black_on_purple(f" ") + "\n"
+
             with term.location(*self.position):
-                print_and_flush(term.black_on_purple(f" ") + "\n")
-                print_and_flush(term.black_on_purple(f" Stack ({len(self._rects)} rects): ") + "\n")
-                for i, rect in enumerate(self._rects):
-                    if i == 0:
-                        print_and_flush(term.black_on_purple(" > "))
-                    print_and_flush(term.black_on_purple(f"({i}) "))
-                print_and_flush("".join([f"\n{term.black_on_purple(' ')}" for _ in range(self.height - 3)]))
+                print_no_newline(string)
+
+            string = term.black_on_purple(f" Stack ({len(self._rects)} rects, {len(enabled_rects)} active): ")
+
+            for i, rect in enumerate(self._rects):
+                string += "\n"
+                color = term.black_on_purple if rect.enabled else term.gray70_on_purple
+                string += term.black_on_purple(color(f"   ({i}) {rect.pos_y:>3} {rect.max_height} "))
+
+            string = TextUtils.pad_to_itself(string)
+            string += "".join([f"\n{term.black_on_purple(' ')}" for _ in range(self.height - len(self._rects) - 1)])
+
+            with term.location(*self.position):
+                print_no_newline(string)
