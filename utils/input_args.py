@@ -11,6 +11,7 @@ class Arguments(BaseModel):
     config: str = Field(default=None)
     config_fetch_interval: float = Field(default=600)
     attack_methods: List[str] = Field(default=[])
+    requests_per_connection: int = 100
     proxies: str = Field(default=None)
     proxies_validation_timeout: float = Field(default=3)
     proxies_fetch_interval: float = Field(default=600)
@@ -89,6 +90,13 @@ def parse_command_line_args() -> Arguments:
         default=["TCP", "GET", "POST", "STRESS"],
         choices=Methods.ALL_METHODS,
         help="List of MHDDoS attack methods to use. Default is TCP + GET + POST + STRESS",
+    )
+    parser.add_argument(
+        "-r",
+        "--requests-per-connection",
+        type=int,
+        default=100,
+        help="Number of requests per single connection when running a Layer 7 attack",
     )
     parser.add_argument(
         "-p",

@@ -83,7 +83,6 @@ class Attack(Process):
     THREADS_MAX_LIMIT = 1
     THREADS_MIN_LIMIT = 1
     THREADS_STEP = 10
-    UNLIMITED_RPC = 1000000000000  # number of requests per connection used to make the attack "unlimited" by time
 
     # CONNECTIVITY
     CONNECTIVITY_CHECK_INTERVAL = 60  # TODO: make this a parameter of attack()?
@@ -109,6 +108,7 @@ class Attack(Process):
     tb: int = 0
 
     # CONFIG
+    requests_per_connection: int = 100
     user_agents: List[str] = []
     referrers: List[str] = []
     proxies: List[Proxy] = []
@@ -117,6 +117,7 @@ class Attack(Process):
     def __init__(self,
                  target: Target,
                  attack_methods: List[str],
+                 requests_per_connection: int = 100,
                  proxies_file_path: str | None = "proxies/proxies.txt",
                  user_agents_file_path: str | None = "user_agents.txt",
                  referrers_file_path: str | None = "referrers.txt",
@@ -127,6 +128,7 @@ class Attack(Process):
 
         self.target = target
         self.attack_methods = [m.upper() for m in attack_methods]
+        self.requests_per_connection = requests_per_connection
         self.proxies_file_path = proxies_file_path
         self.user_agents_file_path = user_agents_file_path
         self.referrers_file_path = referrers_file_path
@@ -386,7 +388,7 @@ class Attack(Process):
                 target=self.target.url,
                 host=self.target.ip,
                 method=selected_attack_method,
-                rpc=self.UNLIMITED_RPC,
+                rpc=self.requests_per_connection,
                 synevent=stop_event,
                 useragents=self.user_agents,
                 referers=self.referrers,

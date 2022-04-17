@@ -211,6 +211,7 @@ class AttackSupervisor(Thread):
             attack_process = Attack(
                 target=target,
                 attack_methods=self._args.attack_methods,
+                requests_per_connection=self._args.requests_per_connection,
                 proxies_file_path=self._args.proxies,
                 attack_state_queue=self._attacks_state_queue,
                 logging_queue=self._logging_queue,
