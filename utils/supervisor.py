@@ -17,7 +17,7 @@ from utils.logs import get_logger_for_current_process
 from utils.misc import TimeInterval
 
 
-@dataclass
+@dataclass(slots=True, order=True, frozen=True)
 class AttackSupervisorState:
     is_fetching_configuration: bool
     is_fetching_proxies: bool
