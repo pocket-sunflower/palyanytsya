@@ -117,7 +117,7 @@ class Attack(Process):
     def __init__(self,
                  target: Target,
                  attack_methods: List[str],
-                 proxies_file_path: str | None = "proxies/socks5.txt",
+                 proxies_file_path: str | None = "proxies/proxies.txt",
                  user_agents_file_path: str | None = "user_agents.txt",
                  referrers_file_path: str | None = "referrers.txt",
                  reflectors_file_path: str | None = None,
