@@ -1,7 +1,11 @@
+from __future__ import annotations
+
+import math
+import random
 import threading
 import time
 from threading import Thread
-from typing import Callable, Dict
+from typing import Callable, Dict, Any, List
 
 from blessed import Terminal
 from blessed.keyboard import Keystroke
@@ -123,12 +127,12 @@ class KeyboardListener:
     _same_key_interval: float = 0.1
 
     def __init__(self, term: Terminal, on_key_callback: Callable[[Keystroke], None]):
-        self._term = term
-        self._on_press_callback = on_key_callback
-
         stop_event = threading.Event()
         stop_event.clear()
         self._stop_event = stop_event
+
+        self._term = term
+        self._on_press_callback = on_key_callback
 
         self._reader_thread = Thread(target=self._key_reader, daemon=True)
         self._reader_thread.start()
@@ -158,7 +162,7 @@ class KeyboardListener:
         self._reader_thread.join()
 
 
-class ScreenResizeHandler:
+class ScreenResizeListener:
     refresh_interval: float
     debug_display: bool
     _term: Terminal
@@ -170,6 +174,7 @@ class ScreenResizeHandler:
     def __init__(self, term: Terminal, callback: Callable, refresh_interval: float = 0.001, debug_display: bool = False):
         """
         Executes the given callback every time the terminal screen gets resized.
+        The callback if fired only once the terminal has stopped being resized to prevent spamming invocations.
 
         Args:
             term: Terminal.
@@ -177,6 +182,10 @@ class ScreenResizeHandler:
             refresh_interval: Interval between screen size checks (in seconds).
             debug_display: Whether to display current dimensions of the terminal window in its top left corner (for debugging).
         """
+        stop_event = threading.Event()
+        stop_event.clear()
+        self._stop_event = stop_event
+
         self.refresh_interval = refresh_interval
         self.debug_display = debug_display
         self._term = term
@@ -194,34 +203,74 @@ class ScreenResizeHandler:
             height = term.height
 
             if width != self._last_width or height != self._last_height:
-                self._last_width = width
-                self._last_height = height
-
                 self._callback()
+
+            self._last_width = width
+            self._last_height = height
 
             if self.debug_display:
                 with term.location(0, 0):
-                    print_and_flush(term.black_on_pink(f" Terminal size: {term.width}x{term.height} "))
+                    print_and_flush(term.black_on_pink(f" Terminal size: {width}x{height} "))
 
             time.sleep(self.refresh_interval)
 
+    def stop(self):
+        self._stop_event.set()
 
-class BlessedWindow:
+
+class Drawable:
+    enabled: bool = True
+
+    _is_force_redrawing: bool = False
+    _debug: bool = False
+    _draw_count: int = 0
+
+    def redraw(self):
+        if self.enabled:
+            self._redraw_implementation()
+            self._draw_count += 1
+            self._is_force_redrawing = False
+
+    def force_redraw(self):
+        self._is_force_redrawing = True
+        self.redraw()
+
+    def _redraw_child(self, child_drawable: Drawable):
+        child_drawable._is_force_redrawing = self._is_force_redrawing
+        child_drawable.redraw()
+
+    def _redraw_implementation(self):
+        pass
+
+
+class DrawableRect(Drawable):
     pos_x: int = 0
     pos_y: int = 0
     max_height: int = None
     max_width: int = None
-    has_borders: bool = False
-    background_color: Callable[[str], str] = None
 
     _term: Terminal
-    _content_buffer: str = ""
 
     def __init__(self, term: Terminal):
+        """
+        Defines a rectangular area in the terminal.
+
+        Args:
+            term: Terminal object.
+        """
+        Drawable.__init__(self)
+
         self._term = term
 
     @property
-    def height(self):
+    def position(self) -> (int, int):
+        return self.pos_x, self.pos_y
+
+    @property
+    def height(self) -> int:
+        if not self.enabled:
+            return 0
+
         max_height = self.max_height
         pos_y = self.pos_y
         term_height = self._term.height
@@ -231,7 +280,10 @@ class BlessedWindow:
             return max_height
 
     @property
-    def width(self):
+    def width(self) -> int:
+        if not self.enabled:
+            return 0
+
         max_width = self.max_width
         pos_x = self.pos_x
         term_width = self._term.width
@@ -240,18 +292,57 @@ class BlessedWindow:
         else:
             return max_width
 
+
+class Window(DrawableRect):
+    has_borders: bool = False
+    background_color: Callable[[str], str] = None
+
+    _term: Terminal
+    _content_update_callback: Callable[[Window], None]
+    _change_callback: Callable[[], Any] = None
+
+    _change_check_value: Any = None
+
+    _content_buffer: str = ""
+    _last_drawn_buffer: str = ""
+
+    def __init__(self, term: Terminal, content_update_callback: Callable[[Window], None], change_callback: Callable[[], Any] = None):
+        """
+        Defines a square area in the terminal which can be drawn to.
+
+        Args:
+            term: Terminal object.
+            content_update_callback: Function which will handle adding updating the content of the pad when it gets drawn
+            change_callback: Optional callback which return value will be used to check if redraw_callback() should be called.
+                On every call to redraw(), the return value of change_callback() will be checked. If it has not changed since
+                the last redraw(), the window will print the cached content.
+        """
+        DrawableRect.__init__(self, term)
+
+        self._term = term
+        self._content_update_callback = content_update_callback
+        self._change_callback = change_callback
+
     @property
     def width_for_content(self):
+        if not self.enabled:
+            return 0
+
         width = self.width
         if self.has_borders:
             width -= 2
+        width = max(width, 0)
         return width
 
     @property
     def height_for_content(self):
+        if not self.enabled:
+            return 0
+
         height = self.height
         if self.has_borders:
             height -= 2
+        height = max(height, 0)
         return height
 
     def clear_content(self):
@@ -269,15 +360,33 @@ class BlessedWindow:
     def center_content(self):
         self._content_buffer = TextUtils.center(self._content_buffer, self.width_for_content)
 
-    def redraw(self):
+    def _check_should_update_content(self) -> bool:
+        if not self._change_callback:
+            return True
+
+        value = self._change_callback()
+        if self._change_check_value != value:
+            self._change_check_value = value
+            return True
+
+        return False
+
+    def _redraw_implementation(self) -> None:
         term = self._term
 
         # compute content dimensions
         width = self.width_for_content
         height = self.height_for_content
 
+        if not self._is_force_redrawing and not self._check_should_update_content():
+            return
+
+        # invoke draw callback to update the content
+        self._content_update_callback(self)
+
         # crop content to fit in window
         content = self._content_buffer
+        # content = f" {self._term.on_red(f'{random.random()}')} {content}"
         content = TextUtils.truncate_to_box(content, width, height)
         content = TextUtils.pad_to_box(content, width, height)
         if self.has_borders:
@@ -285,5 +394,83 @@ class BlessedWindow:
         if self.background_color is not None:
             content = self.background_color(content)
 
+        self._last_drawn_buffer = content
+
         with term.location(self.pos_x, self.pos_y):
-            print_and_flush(content)
+            print_and_flush(self._last_drawn_buffer)
+
+        # debug
+        if self._debug:
+            with term.location(*self.position):
+                draw_indicator = "|" if (self._draw_count % 2 == 1) else "─"
+                was_forced = " FORCED" if self._is_force_redrawing else ""
+                debug_string = term.black_on_pink(f" Window {self.width}x{self.height} at {self.position} {draw_indicator}{was_forced} ")
+                print_and_flush(debug_string)
+
+
+class DrawableRectStack(DrawableRect):
+    _rects: List[DrawableRect] = []
+
+    def __init__(self, term: Terminal, rects: List[DrawableRect]):
+        """
+        Defines a vertical stack of several DrawableRects which automatically controls their dimensions and draws them.
+        """
+        DrawableRect.__init__(self, term)
+
+        self._rects = rects
+
+    def _redraw_implementation(self):
+        term = self._term
+
+        # debug
+        for rect in self._rects:
+            rect._debug = self._debug
+
+        # calculate minimum height required by child rects
+        height = self.height
+        used_height = 0
+        unconstrained_rects_indices = []
+        for i, rect in enumerate(self._rects):
+            if rect.max_height is None:
+                unconstrained_rects_indices.append(i)
+                continue
+            used_height += rect.max_height
+
+        # calculate height left for unconstrained child rects
+        flexible_height = max(height - used_height, 0)
+        unconstrained_rects_count = len(unconstrained_rects_indices)
+        height_per_unconstrained_rect = math.floor(flexible_height / unconstrained_rects_count) if unconstrained_rects_count > 0 else 0
+
+        # apply max_height to every unconstrained rect
+        for i in unconstrained_rects_indices:
+            self._rects[i].max_height = height_per_unconstrained_rect
+
+        # update positions
+        pos_y = 0
+        for i, rect in enumerate(self._rects):
+            rect.pos_x = self.pos_x
+            rect.pos_y = pos_y
+            pos_y += rect.height
+
+        # limit max width
+        for i, rect in enumerate(self._rects):
+            rect.max_width = self.width
+
+        # render
+        for i, rect in enumerate(self._rects):
+            self._redraw_child(rect)
+
+        # restore unconstrained rects max_heights
+        for i in unconstrained_rects_indices:
+            self._rects[i].max_height = None
+
+        # debug
+        if self._debug:
+            with term.location(*self.position):
+                print_and_flush(term.black_on_purple(f" ") + "\n")
+                print_and_flush(term.black_on_purple(f" Stack ({len(self._rects)} rects): ") + "\n")
+                for i, rect in enumerate(self._rects):
+                    if i == 0:
+                        print_and_flush(term.black_on_purple(" > "))
+                    print_and_flush(term.black_on_purple(f"({i}) "))
+                print_and_flush("".join([f"\n{term.black_on_purple(' ')}" for _ in range(self.height - 3)]))

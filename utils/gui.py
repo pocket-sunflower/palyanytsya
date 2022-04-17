@@ -1,4 +1,5 @@
 import math
+import random
 import threading
 import time
 import traceback
@@ -17,7 +18,7 @@ from MHDDoS.methods.tools import Tools
 from MHDDoS.utils.connectivity import Connectivity, ConnectivityState
 from MHDDoS.utils.misc import get_last_from_queue
 from MHDDoS.utils.targets import Target
-from utils.blessed_utils import BlessedWindow, print_and_flush, ScreenResizeHandler, KeyboardListener, TextUtils
+from utils.blessed_utils import Window, print_and_flush, KeyboardListener, TextUtils, DrawableRectStack, Drawable, ScreenResizeListener
 from utils.input_args import Arguments
 from utils.logs import get_logger_for_current_process
 from utils.misc import TimeInterval
@@ -45,18 +46,19 @@ def get_flair_string(t: Terminal = None):
 
 
 # MAIN GUI THREAD
-class GUI(Thread):
+class GUI(Thread, Drawable):
     """GUI thread of Palyanytsya."""
-    _update_interval: float = 0.01
+    _update_interval: float = 1
     _flair_update_interval: TimeInterval = TimeInterval(100)
-    _ui_update_interval: TimeInterval = TimeInterval(0.2)
+    # _ui_update_interval: TimeInterval = TimeInterval(1.2)
     _supervisor_state: AttackSupervisorState = None
 
-    _flair_window: BlessedWindow
-    _supervisor_window: BlessedWindow
-    _attacks_window: BlessedWindow
-    _target_status_window: BlessedWindow
-    _nav_tips_window: BlessedWindow
+    # _flair_window: Window
+    # _supervisor_window: Window
+    # _attacks_window: Window
+    # _target_status_window: Window
+    # _nav_tips_window: Window
+    _gui_stack: DrawableRectStack
 
     _ui_drawing_time = 0
 
@@ -67,7 +69,7 @@ class GUI(Thread):
 
     SUPERVISOR_HEIGHT = 1
     FLAIR_HEIGHT = 12
-    MAX_GUI_WIDTH = 150
+    MAX_GUI_WIDTH = 300
 
     _attacks_table = PrettyTable(
         hrules=ALL,
@@ -86,6 +88,8 @@ class GUI(Thread):
         bottom_left_junction_char="╰",
         bottom_right_junction_char="╯",
     )
+
+    _redraw_lock = threading.Lock()
 
     def __init__(self,
                  args: Arguments,
@@ -106,48 +110,78 @@ class GUI(Thread):
         stop_event.clear()
         self._stop_event = stop_event
 
+        # WINDOWS
+
+        all_gui_elements = []
+
+        flair_window = Window(term,
+                              content_update_callback=self._draw_flair,
+                              # change_callback=lambda: False,
+                              change_callback=lambda: self._flair_update_interval.check_if_has_passed()
+                              )
+        flair_window.max_height = self.FLAIR_HEIGHT
+        flair_window.max_width = self.MAX_GUI_WIDTH
+        all_gui_elements.append(flair_window)
+
+        supervisor_window = Window(term,
+                                   content_update_callback=self._draw_supervisor,
+                                   # change_callback=lambda: False,
+                                   change_callback=lambda: self._supervisor_state
+                                   )
+        supervisor_window.max_height = self.SUPERVISOR_HEIGHT
+        all_gui_elements.append(supervisor_window)
+
+        header_window = Window(term,
+                               content_update_callback=self._draw_header,
+                               # change_callback=lambda: False,
+                               change_callback=lambda: (self._is_in_target_status_view, self._supervisor_state)
+                               )
+        header_window.max_height = 3
+        all_gui_elements.append(header_window)
+
+        attacks_window = Window(term,
+                                content_update_callback=self._draw_attacks,
+                                # change_callback=lambda: False,
+                                change_callback=lambda: self._supervisor_state.attack_states if self._supervisor_state else []
+                                )
+        all_gui_elements.append(attacks_window)
+
+        # target_status_window = Window(term, redraw_callback=self._draw_target_status)
+        # target_status_window.pos_y = self.FLAIR_HEIGHT + self.SUPERVISOR_HEIGHT
+        # target_status_window.max_width = self.MAX_GUI_WIDTH
+        # stack_windows.append(target_status_window)
+
+        nav_tips_window = Window(term,
+                                 content_update_callback=self._draw_nav_tips,
+                                 # change_callback=lambda: False,
+                                 change_callback=lambda: self._is_in_target_status_view
+                                 )
+        nav_tips_window.max_height = 1
+        all_gui_elements.append(nav_tips_window)
+
+        self._gui_stack = DrawableRectStack(
+            term,
+            rects=all_gui_elements
+        )
+        self._gui_stack.max_width = self.MAX_GUI_WIDTH
+        self._gui_stack._debug = False
+
         # INTERACTIONS
 
         self._keyboard_listener = KeyboardListener(term, on_key_callback=self._process_keystroke)
-
-        # WINDOWS
-
-        window = BlessedWindow(term)
-        window.max_height = self.FLAIR_HEIGHT
-        window.max_width = self.MAX_GUI_WIDTH
-        self._flair_window = window
-
-        window = BlessedWindow(term)
-        window.pos_y = self.FLAIR_HEIGHT
-        window.max_height = self.SUPERVISOR_HEIGHT
-        window.max_width = self.MAX_GUI_WIDTH
-        self._supervisor_window = window
-
-        window = BlessedWindow(term)
-        window.pos_y = self.FLAIR_HEIGHT + self.SUPERVISOR_HEIGHT
-        window.max_width = self.MAX_GUI_WIDTH
-        self._attacks_window = window
-
-        window = BlessedWindow(term)
-        window.pos_y = self.FLAIR_HEIGHT + self.SUPERVISOR_HEIGHT
-        window.max_width = self.MAX_GUI_WIDTH
-        self._target_status_window = window
-
-        window = BlessedWindow(term)
-        window.pos_y = term.height - 2
-        window.max_height = 1
-        window.max_width = self.MAX_GUI_WIDTH
-        self._nav_tips_window = window
+        self._screen_resize_listener = ScreenResizeListener(term, callback=self._handle_screen_resize, debug_display=False)
 
     def run(self):
         try:
             with term.fullscreen(), term.cbreak(), term.hidden_cursor():
                 print_and_flush(term.home + term.clear)
-                ScreenResizeHandler(term, self.force_redraw, debug_display=False)
 
                 while not self._stop_event.is_set():
                     self._update_supervisor_state()
-                    self.redraw()
+
+                    with self._redraw_lock:
+                        self.redraw()
+
                     time.sleep(self._update_interval)
         except Exception as e:
             print_and_flush(term.clear)
@@ -175,6 +209,10 @@ class GUI(Thread):
     def _update_supervisor_state(self):
         self._supervisor_state = get_last_from_queue(self._supervisor_state_queue, self._supervisor_state)
 
+    def _handle_screen_resize(self):
+        with self._redraw_lock:
+            self._is_force_redrawing = True
+
     # PROPERTIES
 
     @property
@@ -192,30 +230,15 @@ class GUI(Thread):
 
     # DRAWING METHODS
 
-    def force_redraw(self):
-        self._flair_update_interval.reset()
-        self._ui_update_interval.reset()
-        self.redraw()
-
-    def redraw(self):
+    def _redraw_implementation(self):
         # if self._flair_update_interval.check_if_has_passed():
         start = time.perf_counter()
 
-        self._draw_flair()
-
-        self._draw_supervisor()
-
-        if self._is_in_target_status_view:
-            self._draw_target_status()
-        else:
-            self._draw_attacks()
-
-        self._draw_nav_tips()
+        self._redraw_child(self._gui_stack)
 
         drawing_time = time.perf_counter() - start
-        if drawing_time > 0.001:
-            self._ui_drawing_time = drawing_time
-        time_sting = f" GUI: {1 / self._ui_drawing_time:>1.1f} FPS "
+        self._ui_drawing_time = max(drawing_time, 0.001)
+        time_sting = f" GUI: {1 / self._ui_drawing_time:>3.1f} FPS "
         time_sting = term.black_on_green(time_sting)
         width = term.length(time_sting)
         with term.location(term.width - width, term.height):
@@ -228,10 +251,11 @@ class GUI(Thread):
 
         term.move_xy(term.width, term.height)
 
-    def _draw_flair(self):
+    # DRAWING CALLBACKS
+
+    def _draw_flair(self, window: Window):
         gradient = ["█", "▓", "▒", "░", " "]
 
-        window = self._flair_window
         window.clear_content()
 
         flair_text = get_flair_string(term)
@@ -277,9 +301,8 @@ class GUI(Thread):
 
         window.add_content(flair)
         window.center_content()
-        window.redraw()
 
-    def _draw_supervisor(self):
+    def _draw_supervisor(self, window: Window):
         supervisor = self._supervisor_state
         s = ""
         # s += "Attack supervisor: "
@@ -294,47 +317,13 @@ class GUI(Thread):
                 s += f"{supervisor.attack_processes_count} attack processes running."
 
         s = s.upper()
-        s = term.center(s, self._supervisor_window.width)
+        s = term.center(s, window.width)
         s = term.black_on_gold(s)
-        self._supervisor_window.set_content(s)
-        self._supervisor_window.redraw()
+        window.set_content(s)
 
-    def _draw_attacks(self):
-        attacks_table = self._attacks_table
-        attacks_table.clear()
-
-        window = self._attacks_window
+    def _draw_header(self, window: Window):
         window.clear_content()
 
-        if self._supervisor_state is None:
-            s = " Waiting for supervisor to initialize... "
-            s = TextUtils.wrap_in_border(s)
-            window.add_content(s)
-        elif not self._is_attacks_info_available:
-            s = " Waiting for attack processes to start... "
-            s = TextUtils.wrap_in_border(s)
-            window.add_content(s)
-        else:
-            # header
-            # header = f"OVERVIEW: {self._supervisor_state.attack_processes_count} ATTACKS RUNNING"
-            # header = f" {header} "
-            # header = wrap_text_in_border(header, term)
-            header = self._get_header()
-            window.add_content(header)
-
-            # table
-            self._add_header_to_attack_state_table(attacks_table)
-            for attack in self._supervisor_state.attack_states:
-                self._add_attack_row_to_attack_state_table(attacks_table, attack)
-            table_string = attacks_table.get_string()
-            table_string = self._color_table_row(0, attacks_table, table_string, term.black_on_orange, term.orange)
-            table_string = self._color_table_row(1 + self._selected_attack_index, attacks_table, table_string, None, term.black_on_bright_white)
-            window.add_content(table_string)
-
-        window.center_content()
-        window.redraw()
-
-    def _get_header(self) -> str:
         inactive_color = term.gray30
 
         # OVERVIEW HEADER
@@ -367,9 +356,36 @@ class GUI(Thread):
             header.append(header_o_split[i] + " " + header_d_split[i])
         header = "\n".join(header)
 
-        return header
+        window.add_content(header)
+        window.center_content()
 
-    def _draw_target_status(self):
+    def _draw_attacks(self, window: Window):
+        attacks_table = self._attacks_table
+        attacks_table.clear()
+
+        window.clear_content()
+
+        if self._supervisor_state is None:
+            s = " Waiting for supervisor to initialize... "
+            s = TextUtils.wrap_in_border(s)
+            window.add_content(s)
+        elif not self._is_attacks_info_available:
+            s = " Waiting for attack processes to start... "
+            s = TextUtils.wrap_in_border(s)
+            window.add_content(s)
+        else:
+            # table
+            self._add_header_to_attack_state_table(attacks_table)
+            for attack in self._supervisor_state.attack_states:
+                self._add_attack_row_to_attack_state_table(attacks_table, attack)
+            table_string = attacks_table.get_string()
+            table_string = self._color_table_row(0, attacks_table, table_string, term.black_on_orange, term.orange)
+            table_string = self._color_table_row(1 + self._selected_attack_index, attacks_table, table_string, None, term.black_on_bright_white)
+            window.add_content(table_string)
+
+        window.center_content()
+
+    def _draw_target_status(self, window: Window):
         if self._supervisor_state is None:
             return
 
@@ -379,15 +395,7 @@ class GUI(Thread):
 
         attack_state = self._supervisor_state.attack_states[self._selected_attack_index]
 
-        window = self._target_status_window
         window.clear_content()
-
-        # HEADER
-        index = self._selected_attack_index
-        # header = f" ATTACK DETAILS {index + 1}/{self._supervisor_state.attack_processes_count} "
-        # header = wrap_text_in_border(header, term)
-        header = self._get_header()
-        window.add_content(header)
 
         # ATTACK INFO
         table = self._attacks_table
@@ -411,12 +419,8 @@ class GUI(Thread):
             window.add_content(table_string)
 
         window.center_content()
-        window.redraw()
 
-    def _draw_nav_tips(self):
-
-        window = self._nav_tips_window
-
+    def _draw_nav_tips(self, window: Window):
         color = term.black_on_yellow
         up = color("UP")
         down = color("DOWN")
@@ -428,7 +432,6 @@ class GUI(Thread):
 
         window.set_content(s)
         window.center_content()
-        window.redraw()
 
     # ATTACKS TABLE METHODS
 
@@ -771,9 +774,15 @@ class GUI(Thread):
                 if key.code == term.KEY_DOWN:
                     self._select_next_attack()
                 if key.code == term.KEY_RIGHT:
-                    self._is_in_target_status_view = True
+                    self._switch_to_target_status_view()
                 if key.code == term.KEY_LEFT:
-                    self._is_in_target_status_view = False
+                    self._switch_to_attacks_view()
+
+    def _switch_to_attacks_view(self):
+        self._is_in_target_status_view = False
+
+    def _switch_to_target_status_view(self):
+        self._is_in_target_status_view = True
 
     def _select_next_attack(self):
         if not self._is_attacks_info_available:
