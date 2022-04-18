@@ -195,7 +195,8 @@ class GUI(Thread, Drawable):
             term,
             content_update_callback=self._draw_attacks,
             change_callback=lambda: (
-                self._supervisor_state.attack_states if self._supervisor_state else []
+                self._supervisor_state.attack_states if self._supervisor_state else [],
+                self._selected_attack_index
             )
         )
         attacks_window.max_height = self.ATTACKS_TABLE_HEADER_HEIGHT + self.ATTACKS_TABLE_ROW_HEIGHT * self.ATTACKS_PER_PAGE
@@ -273,7 +274,7 @@ class GUI(Thread, Drawable):
 
         # INTERACTIONS
 
-        self._keyboard_listener = KeyboardListener(term, on_key_callback=self._process_keystroke)
+        self._keyboard_listener = KeyboardListener(term, on_key_callback=self._process_keystroke, same_key_interval=0.05)
         self._screen_resize_listener = ScreenResizeListener(term, callback=self._handle_screen_resize, debug_display=False)
 
     def run(self):
