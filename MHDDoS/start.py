@@ -9,6 +9,7 @@ from sys import argv
 from threading import Event
 from PyRoxy import Tools as ProxyTools
 from blessed import Terminal
+import json
 
 from yarl import URL
 
@@ -48,7 +49,7 @@ def start():
     TOTAL_BYTES_SENT = Counter()
 
     with open(__dir__ / "config.json") as f:
-        config = load(f)
+        config = json.load(f)
         with suppress(IndexError):
             one = argv[1].upper()
 
