@@ -1,5 +1,6 @@
 import logging
 import multiprocessing
+import os
 import sys
 import threading
 from io import StringIO
@@ -67,6 +68,8 @@ def initialize_logging(no_gui: bool = True) -> Queue:
     logging_queue = Queue()
 
     # this writes to file
+    if not os.path.exists("logs"):
+        os.mkdir("logs")
     file_handler = TimedRotatingFileHandler(
             filename="logs/log.txt",
             when='h',
