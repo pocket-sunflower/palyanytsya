@@ -1,5 +1,4 @@
 import math
-import re
 import threading
 import time
 import traceback
@@ -7,7 +6,7 @@ from multiprocessing import Queue
 from threading import Thread
 from typing import Callable
 
-from blessed import Terminal, sequences
+from blessed import Terminal
 from blessed.keyboard import Keystroke
 from icmplib import Host
 from prettytable import PrettyTable, ALL
@@ -25,6 +24,23 @@ from utils.misc import TimeInterval
 from utils.supervisor import AttackSupervisorState
 
 term = Terminal()
+
+
+color_ok = term.green
+color_warning = term.yellow
+color_bad = term.red
+color_exception = term.black_on_red
+color_special = term.cyan
+color_muted = term.gray30
+color_attacks_header = term.black_on_orange
+color_attacks_header_alt = term.orange
+color_connectivity_header = term.black_on_cyan
+color_connectivity_header_alt = term.cyan
+color_time_string = term.black_on_green
+color_ua_blue = term.blue
+color_ua_yellow = term.gold
+color_selection = term.black_on_white
+color_navigation_keys = term.black_on_yellow
 
 
 def get_flair_string(t: Terminal = None):
@@ -270,7 +286,7 @@ class GUI(Thread, Drawable):
             rects=all_gui_elements
         )
         self._gui_stack.max_width = self.MAX_GUI_WIDTH
-        self._gui_stack._debug = False
+        self._gui_stack._debug = True
 
         # INTERACTIONS
 
@@ -291,15 +307,9 @@ class GUI(Thread, Drawable):
                     time.sleep(self._update_interval)
         except Exception as e:
             print_no_newline(term.clear)
-            print_no_newline(term.black_on_red(" Exception in GUI thread: \n\n"))
+            print_no_newline(color_exception(" Exception in GUI thread: \n\n"))
             trace = traceback.format_exc()
-            print_no_newline(term.red(trace))
-            # print_and_flush(TextUtils.pad_to_box("", term.width, term.height))
-            # with term.location(term.width, term.height):
-            # print_and_flush(term.black_on_red(e))
-            # while True:
-            #     print_and_flush(term.black_on_red("hello"))
-            #     time.sleep(0.5)
+            print_no_newline(color_bad(trace))
             raise SystemExit
         except (KeyboardInterrupt, SystemExit) as e:
             # raise e
@@ -349,10 +359,10 @@ class GUI(Thread, Drawable):
         drawing_time = time.perf_counter() - start
         self._ui_drawing_time = max(drawing_time, 0.0001)
         time_sting = f" GUI: {1 / self._ui_drawing_time:>3.1f} FPS "
-        time_sting = term.black_on_green(time_sting)
-        width = term.length(time_sting)
+        time_sting = color_time_string(time_sting)
+        width = TextUtils.width(time_sting)
         with term.location(term.width - width, term.height):
-            print_no_newline(term.rjust(time_sting, width))
+            print_no_newline(TextUtils.justify_right(time_sting, width))
 
         # if self._ui_update_interval.check_if_has_passed():
 
@@ -402,7 +412,7 @@ class GUI(Thread, Drawable):
         flair_text_split = flair_text.split("\n")
         flair_height = len(flair_text_split)
         for i in range(window.height):
-            color = term.blue if (i < flair_height // 2) else term.gold
+            color = color_ua_blue if (i < flair_height // 2) else color_ua_yellow
             line = craft_flair_side(True, color)
             line += flair_text_split[i]
             line += craft_flair_side(False, color)
@@ -427,14 +437,12 @@ class GUI(Thread, Drawable):
                 s += f"{supervisor.attack_processes_count} attack processes running."
 
         s = s.upper()
-        s = term.center(s, window.width)
+        s = TextUtils.center(s, window.width)
         s = term.black_on_gold(s)
         window.set_content(s)
 
     def _draw_header(self, window: Window):
         window.clear_content()
-
-        inactive_color = term.gray30
 
         # OVERVIEW HEADER
         header_o = f"OVERVIEW"
@@ -446,7 +454,7 @@ class GUI(Thread, Drawable):
         header_o = f" {header_o} "
         header_o = TextUtils.wrap_in_border(header_o)
         if not self._is_in_attacks_view:
-            header_o = TextUtils.color(header_o, inactive_color)
+            header_o = TextUtils.color(header_o, color_muted)
 
         # DETAILS HEADER
         index = self._selected_attack_index
@@ -456,7 +464,7 @@ class GUI(Thread, Drawable):
         header_d = f" {header_d} "
         header_d = TextUtils.wrap_in_border(header_d)
         if not self._is_in_target_status_view:
-            header_d = TextUtils.color(header_d, inactive_color)
+            header_d = TextUtils.color(header_d, color_muted)
 
         # JOIN HEADERS
         header_o_split = header_o.split("\n")
@@ -497,9 +505,9 @@ class GUI(Thread, Drawable):
                 self._add_attack_row_to_attack_state_table(attacks_table, attack)
 
             table_string = attacks_table.get_string()
-            table_string = self._color_table_row(0, attacks_table, table_string, term.black_on_orange, term.orange)
+            table_string = self._color_table_row(0, attacks_table, table_string, color_attacks_header, color_attacks_header_alt)
             selected_attack_index_on_page = Pagination.get_item_index_on_page(self._selected_attack_index, self.ATTACKS_PER_PAGE)
-            table_string = self._color_table_row(1 + selected_attack_index_on_page, attacks_table, table_string, term.black_on_bright_white, term.black_on_bright_white)
+            table_string = self._color_table_row(1 + selected_attack_index_on_page, attacks_table, table_string, color_selection, color_selection)
             window.add_content(table_string)
 
         window.center_content()
@@ -535,7 +543,7 @@ class GUI(Thread, Drawable):
         self._add_header_to_attack_state_table(table)
         self._add_attack_row_to_attack_state_table(table, attack_state)
         table_string = table.get_string()
-        table_string = self._color_table_row(0, table, table_string, term.black_on_orange, term.orange)
+        table_string = self._color_table_row(0, table, table_string, color_attacks_header, color_attacks_header_alt)
         window.add_content(table_string)
 
         # CONNECTIVITY INFO
@@ -561,7 +569,7 @@ class GUI(Thread, Drawable):
             self._add_header_to_connectivity_table(table, attack_state.target)
             self._add_rows_to_connectivity_table(table, attack_state.target)
             table_string = table.get_string()
-            table_string = self._color_table_row(0, table, table_string, term.black_on_cyan, term.cyan)
+            table_string = self._color_table_row(0, table, table_string, color_connectivity_header, color_connectivity_header_alt)
             window.add_content(table_string)
 
         window.center_content()
@@ -583,9 +591,8 @@ class GUI(Thread, Drawable):
         window.center_content()
 
 
-
     def _draw_nav_tips(self, window: Window):
-        color = term.black_on_yellow
+        color = color_navigation_keys
         up = color("UP")
         down = color("DOWN")
         left = color("LEFT")
@@ -633,15 +640,15 @@ class GUI(Thread, Drawable):
         if attack.has_connectivity_data:
             target_status_string = self._get_concise_target_connectivity_string(attack.target, attack.connectivity_state)
         else:
-            target_status_string = term.webgray("Checking...")
+            target_status_string = color_muted("Checking...")
 
         # methods
         if attack.attack_methods is None:
-            attack_methods_string = term.webgray("Validating...")
+            attack_methods_string = color_muted("Validating...")
         elif len(attack.attack_methods) == 0:
             attack_methods_string = "0 (no valid \n" \
                                     "methods found)"
-            attack_methods_string = TextUtils.color(attack_methods_string, term.red)
+            attack_methods_string = TextUtils.color(attack_methods_string, color_bad)
         else:
             n_attack_methods = len(attack.attack_methods)
             first_two = attack.attack_methods[0:2] if (n_attack_methods > 1) else attack.attack_methods
@@ -651,12 +658,12 @@ class GUI(Thread, Drawable):
             else:
                 attack_methods_string = "\n".join(first_two)
 
-            attack_methods_string = TextUtils.color(attack_methods_string, term.cyan)
+            attack_methods_string = TextUtils.color(attack_methods_string, color_special)
 
         # requests
         rps = f"{Tools.humanformat(attack.requests_per_second)} r/s"
         if attack.requests_per_second == 0:
-            rps = term.red(rps)
+            rps = color_bad(rps)
             # TODO: display change arrow
         requests_string = f"{rps}\n" \
                           f"({Tools.humanformat(attack.total_requests_sent)})"
@@ -664,7 +671,7 @@ class GUI(Thread, Drawable):
         # bytes
         bps = f"{Tools.humanbytes(attack.bytes_per_second)}/s"
         if attack.bytes_per_second == 0:
-            bps = term.red(rps)
+            bps = color_bad(rps)
             # TODO: display change arrow
         bytes_string = f"{bps}\n" \
                        f"({Tools.humanbytes(attack.total_bytes_sent)})"
@@ -674,7 +681,7 @@ class GUI(Thread, Drawable):
         n_proxies_total = self._supervisor_state.proxies_count
 
         if n_proxies_total == 0:
-            proxies_string = term.webgray("Not used")
+            proxies_string = color_muted("Not used")
         else:
             n_validated_proxies = attack.connectivity_state.valid_proxies_count if attack.connectivity_state else 0
             n_proxies_used = attack.used_proxies_count
@@ -683,16 +690,16 @@ class GUI(Thread, Drawable):
 
             if n_proxies_used > 0:
                 if attack.connectivity_state and attack.connectivity_state.has_valid_proxies:
-                    proxies_string += f"{term.green(f'{n_proxies_used} used')}\n"
+                    proxies_string += f"{color_ok(f'{n_proxies_used} used')}\n"
                 else:
                     proxies_string += f"{n_proxies_used} used\n"
             else:
-                proxies_string += f"{term.red(f'None used')}\n"
+                proxies_string += f"{color_bad(f'None used')}\n"
 
             # if n_proxies_ignored:
             #     proxies_string += f"{term.webgray(f'{n_proxies_ignored} ignored')}"
 
-            proxies_string += f"{term.webgray(f'from {n_proxies_total}')}"
+            proxies_string += color_muted(f'from {n_proxies_total}')
 
             # if attack.proxy_validation_state.is_validating:
             #     progress = attack.proxy_validation_state.progress
@@ -765,15 +772,15 @@ class GUI(Thread, Drawable):
     @staticmethod
     def _get_term_color_for_connectivity(c: Connectivity) -> Callable[[str], str]:
         if c == Connectivity.UNKNOWN:
-            return term.webgray
+            return color_muted
         elif c == Connectivity.UNREACHABLE:
-            return term.red3
+            return color_bad
         elif c == Connectivity.UNRESPONSIVE:
-            return term.red
+            return color_bad
         elif c == Connectivity.PARTIALLY_REACHABLE:
-            return term.yellow
+            return color_warning
         elif c == Connectivity.REACHABLE:
-            return term.green
+            return color_ok
 
         return term.white
 
@@ -800,21 +807,21 @@ class GUI(Thread, Drawable):
             color = term.white
 
             if c == Connectivity.REACHABLE:
-                color = term.green
+                color = color_ok
                 message = f"REACHABLE\n" \
                           f"Ping {layer_4.avg_rtt:.0f} ms\n" \
                           f"No packets lost"
             elif Connectivity.PARTIALLY_REACHABLE:
-                color = term.yellow
+                color = color_warning
                 message = f"PARTIALLY REACHABLE\n" \
                           f"Ping {layer_4.avg_rtt:.0f} ms\n" \
                           f"{layer_4.packet_loss * 100:.0f}% packet loss"
             elif Connectivity.UNREACHABLE:
-                color = term.red
-                message = color(f"UNREACHABLE")
+                color = color_bad
+                message = f"UNREACHABLE"
             elif c == Connectivity.UNKNOWN:
-                color = term.webgray
-                message = color(f"UNKNOWN")
+                color = color_muted
+                message = f"UNKNOWN"
 
             message = TextUtils.color(message, color)
 
@@ -831,19 +838,19 @@ class GUI(Thread, Drawable):
 
                 # pick color based on state
                 if c == Connectivity.REACHABLE:
-                    color = term.green
+                    color = color_ok
                 elif c == Connectivity.PARTIALLY_REACHABLE:
-                    color = term.yellow
+                    color = color_warning
                 elif c == Connectivity.UNRESPONSIVE:
-                    color = term.red
+                    color = color_bad
 
                 message = f"Response code {response.status_code}:\n{response.reason}"
             elif isinstance(layer_7, RequestException):
                 exception: RequestException = layer_7
-                color = term.red
+                color = color_bad
                 message = f"Exception:\n{type(exception).__name__}"
             else:
-                color = term.webgray
+                color = color_muted
                 message = f"UNKNOWN"
 
             message = TextUtils.color(message, color)
@@ -855,10 +862,10 @@ class GUI(Thread, Drawable):
                 return get_connectivity_string_l4(layer_4)
             if target.is_layer_7:
                 return get_connectivity_string_l7(layer_7)
-            return term.webgray("UNKNOWN")
+            return color_muted("UNKNOWN")
 
         if not attack_state.is_using_proxies:
-            no_proxy_string = TextUtils.color(f"DIRECT\n(no proxy)", term.webgray)
+            no_proxy_string = TextUtils.color(f"DIRECT\n(no proxy)", color_muted)
 
             # if target.is_layer_4:
             #     con
@@ -875,7 +882,7 @@ class GUI(Thread, Drawable):
                 for i, layer_4 in enumerate(connectivity.layer_4_proxied[start_index:stop_index]):
                     # TODO: display proxy address
                     proxy_string = f"Proxy {i + 1}"
-                    proxy_string = TextUtils.color(proxy_string, term.cyan)
+                    proxy_string = TextUtils.color(proxy_string, color_special)
                     row = [
                         proxy_string,
                         get_connectivity_string_l4(layer_4)
@@ -885,7 +892,7 @@ class GUI(Thread, Drawable):
                 for i, layer_7 in enumerate(connectivity.layer_7_proxied[start_index:stop_index]):
                     # TODO: display proxy address
                     proxy_string = f"Proxy {i + 1}"
-                    proxy_string = TextUtils.color(proxy_string, term.cyan)
+                    proxy_string = TextUtils.color(proxy_string, color_special)
                     row = [
                         proxy_string,
                         get_connectivity_string_l7(layer_7)
