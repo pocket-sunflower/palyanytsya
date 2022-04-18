@@ -1,4 +1,5 @@
 import math
+import re
 import threading
 import time
 import traceback
@@ -6,7 +7,7 @@ from multiprocessing import Queue
 from threading import Thread
 from typing import Callable
 
-from blessed import Terminal
+from blessed import Terminal, sequences
 from blessed.keyboard import Keystroke
 from icmplib import Host
 from prettytable import PrettyTable, ALL
@@ -90,7 +91,7 @@ class Pagination:
 # MAIN GUI THREAD
 class GUI(Thread, Drawable):
     """GUI thread of Palyanytsya."""
-    _update_interval: float = 1
+    _update_interval: float = 0.001
     _flair_update_interval: TimeInterval = TimeInterval(100)
     # _ui_update_interval: TimeInterval = TimeInterval(1.2)
     _supervisor_state: AttackSupervisorState = None
@@ -268,7 +269,7 @@ class GUI(Thread, Drawable):
             rects=all_gui_elements
         )
         self._gui_stack.max_width = self.MAX_GUI_WIDTH
-        self._gui_stack._debug = True
+        self._gui_stack._debug = False
 
         # INTERACTIONS
 
@@ -345,7 +346,7 @@ class GUI(Thread, Drawable):
         self._redraw_child(self._gui_stack)
 
         drawing_time = time.perf_counter() - start
-        self._ui_drawing_time = max(drawing_time, 0.001)
+        self._ui_drawing_time = max(drawing_time, 0.0001)
         time_sting = f" GUI: {1 / self._ui_drawing_time:>3.1f} FPS "
         time_sting = term.black_on_green(time_sting)
         width = term.length(time_sting)
@@ -487,7 +488,6 @@ class GUI(Thread, Drawable):
 
             attacks = self._supervisor_state.attack_states
             n_attacks = len(attacks)
-            n_attack_pages = math.ceil(n_attacks / self.ATTACKS_PER_PAGE)
 
             page_index = Pagination.get_page_index(self._selected_attack_index, self.ATTACKS_PER_PAGE, n_attacks)
             start_index, stop_index = Pagination.get_page_bounds(page_index, self.ATTACKS_PER_PAGE, n_attacks)

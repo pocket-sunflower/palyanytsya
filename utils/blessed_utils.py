@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import math
 import random
+import re
 import threading
 import time
+from enum import IntEnum
 from threading import Thread
 from typing import Callable, Dict, Any, List
 
@@ -22,14 +24,35 @@ def clear_screen(term: Terminal):
 class TextUtils:
     term = Terminal()
 
+    class Justify(IntEnum):
+        LEFT = 0
+        RIGHT = 1
+        CENTER = 2
+
+    @staticmethod
+    def strip_sequences(text: str) -> str:
+        """
+        Strips non-destructive terminal sequences from the given string, while preserving newlines.
+        """
+        term = TextUtils.term
+        stripped = "\n".join([term.caps_compiled.sub('', line) for line in text.split("\n")])
+        return stripped
+
     @staticmethod
     def width(text: str) -> int:
         term = TextUtils.term
-        width = 0
-        for line in text.split("\n"):
-            line = term.strip_seqs(line)
-            if len(line) > width:
-                width = len(line)
+
+        # older, non-optimized version
+        # width = 0
+        # for line in text.split("\n"):
+        #     line = term.strip_seqs(line)
+        #     if len(line) > width:
+        #         width = len(line)
+
+        stripped = TextUtils.strip_sequences(text)
+        stripped_lines_lengths = [len(line) for line in stripped.split("\n")]
+        width = max(stripped_lines_lengths)
+
         return width
 
     @staticmethod
@@ -38,9 +61,93 @@ class TextUtils:
         return height
 
     @staticmethod
-    def truncate_horizontal(text: str, width: int) -> str:
+    def _justify_internal(text: str, width: int, fillchar: str, just: Justify) -> str:
+        text_lines = text.split("\n")
+        lines_range = range(len(text_lines))
+        justified_lines = ["" for _ in lines_range]
+
+        for i in lines_range:
+            line = text_lines[i]
+            stripped_line = TextUtils.strip_sequences(line)
+            padding = max(width - len(stripped_line), 0)
+
+            if just == TextUtils.Justify.LEFT:
+                justified_lines[i] = line + fillchar * padding
+            elif just == TextUtils.Justify.RIGHT:
+                justified_lines[i] = fillchar * padding + line
+            elif just == TextUtils.Justify.CENTER:
+                left_side_padding = math.floor(padding / 2.)
+                right_side_padding = math.ceil(padding / 2.)
+                justified_lines[i] = fillchar * left_side_padding + line + fillchar * right_side_padding
+            else:
+                justified_lines[i] = line
+
+        justified = "\n".join(justified_lines)
+        return justified
+
+    @staticmethod
+    def justify_left(text: str, width: int, fillchar: str = " ") -> str:
+        return TextUtils._justify_internal(text, width, fillchar, TextUtils.Justify.LEFT)
+
+    @staticmethod
+    def justify_right(text: str, width: int, fillchar: str = " ") -> str:
+        return TextUtils._justify_internal(text, width, fillchar, TextUtils.Justify.RIGHT)
+
+    @staticmethod
+    def center(text: str, width: int, fillchar: str = " ") -> str:
+
+        # older, non-optimized version
+        # term = TextUtils.term
+        # text_h = TextUtils.height(text)
+        # text_w = TextUtils.width(text)
+        # text = TextUtils.pad_to_box(text, text_h, text_w)
+        # return "\n".join([term.center(line, width) for line in text.split("\n")])
+
+        text = TextUtils.pad_to_itself(text)
+        return TextUtils._justify_internal(text, width, fillchar, TextUtils.Justify.CENTER)
+
+    @staticmethod
+    def _truncate_line_internal(line: str, length: int) -> str:
+        if len(line) <= length:
+            return line
+
         term = TextUtils.term
-        return "\n".join([term.truncate(line, width) for line in text.split("\n")])
+        caps_regex: re.Pattern = term.caps_compiled
+        last_match_end = 0
+        truncate_stop_index = 0
+        visual_length = 0
+
+        for match in caps_regex.finditer(line):
+            visual_length_increase = match.start() - last_match_end
+            next_visual_length = visual_length + visual_length_increase
+
+            if next_visual_length >= length:
+                truncate_stop_index = last_match_end + (length - visual_length)
+                visual_length = length
+                break
+
+            visual_length = next_visual_length
+            last_match_end = match.end()
+            truncate_stop_index = last_match_end
+
+        if (visual_length < length) and (truncate_stop_index < len(line)):
+            for _ in line[truncate_stop_index:]:
+                visual_length += 1
+                truncate_stop_index += 1
+                if visual_length == length:
+                    break
+
+        return line[0:truncate_stop_index] + term.normal
+
+    @staticmethod
+    def truncate_horizontal(text: str, width: int) -> str:
+
+        # older, non-optimized version
+        # term = TextUtils.term
+        # truncated = "\n".join([term.truncate(line, width) for line in text.split("\n")])
+
+        truncated = "\n".join([TextUtils._truncate_line_internal(line, width) for line in text.split("\n")])
+        return truncated
 
     @staticmethod
     def truncate_vertical(text: str, height: int) -> str:
@@ -80,9 +187,9 @@ class TextUtils:
                    left: int = None,
                    right: int = None,
                    bottom: int = None) -> str:
-        term = TextUtils.term
         text_h = TextUtils.height(text)
-        text = "\n".join([term.ljust(line, width, fillchar) for line in text.split("\n")])
+        # text = "\n".join([term.ljust(line, width, fillchar) for line in text.split("\n")])
+        text = "\n".join([TextUtils.justify_left(line, width, fillchar) for line in text.split("\n")])
         if height > text_h:
             text.removesuffix("\n")
             remaining_lines_count = height - text_h
@@ -107,15 +214,6 @@ class TextUtils:
         bordered = border_top + "\n" + "\n".join(lines) + "\n" + border_bottom
         return bordered
 
-    @staticmethod
-    def center(text: str,
-               width: int = None) -> str:
-        term = TextUtils.term
-        text_h = TextUtils.height(text)
-        text_w = TextUtils.width(text)
-        text = TextUtils.pad_to_box(text, text_h, text_w)
-        return "\n".join([term.center(line, width) for line in text.split("\n")])
-
 
 class KeyboardListener:
     """Provides a way to capture key presses in terminal."""
@@ -126,13 +224,14 @@ class KeyboardListener:
     _last_key_presses: Dict[str, float] = {}
     _same_key_interval: float = 0.1
 
-    def __init__(self, term: Terminal, on_key_callback: Callable[[Keystroke], None]):
+    def __init__(self, term: Terminal, on_key_callback: Callable[[Keystroke], None], same_key_interval: float = 0.1):
         stop_event = threading.Event()
         stop_event.clear()
         self._stop_event = stop_event
 
         self._term = term
         self._on_press_callback = on_key_callback
+        self._same_key_interval = same_key_interval
 
         self._reader_thread = Thread(target=self._key_reader, daemon=True)
         self._reader_thread.start()
@@ -274,10 +373,6 @@ class DrawableRect(Drawable):
         self._term = term
 
     @property
-    def position(self) -> (int, int):
-        return self.pos_x, self.pos_y
-
-    @property
     def height(self) -> int:
         if not self.enabled:
             return 0
@@ -303,6 +398,18 @@ class DrawableRect(Drawable):
         else:
             return max_width
 
+    @property
+    def position(self) -> (int, int):
+        return self.top_left_corner
+
+    @property
+    def top_left_corner(self) -> (int, int):
+        return self.pos_x, self.pos_y
+
+    @property
+    def bottom_left_corner(self) -> (int, int):
+        return self.pos_x, self.pos_y + self.height - 1
+
 
 class Window(DrawableRect):
     has_borders: bool = False
@@ -316,6 +423,8 @@ class Window(DrawableRect):
 
     _content_buffer: str = ""
     _last_drawn_buffer: str = ""
+
+    _debug_content_buffer: str = ""
 
     def __init__(self, term: Terminal, content_update_callback: Callable[[Window], None], change_callback: Callable[[], Any] = None):
         """
@@ -371,6 +480,12 @@ class Window(DrawableRect):
     def center_content(self):
         self._content_buffer = TextUtils.center(self._content_buffer, self.width_for_content)
 
+    def _clear_debug_conent(self):
+        self._debug_content_buffer = ""
+
+    def _set_debug_conent(self, string: str):
+        self._debug_content_buffer = string
+
     def _check_should_update_content(self) -> bool:
         if not self._change_callback:
             return True
@@ -385,6 +500,9 @@ class Window(DrawableRect):
     def _redraw_implementation(self) -> None:
         term = self._term
 
+        # debug
+        start_time = time.perf_counter()
+
         # compute content dimensions
         width = self.width_for_content
         height = self.height_for_content
@@ -397,7 +515,6 @@ class Window(DrawableRect):
 
         # crop content to fit in window
         content = self._content_buffer
-        # content = f" {self._term.on_red(f'{random.random()}')} {content}"
         content = TextUtils.truncate_to_box(content, width, height)
         content = TextUtils.pad_to_box(content, width, height)
         if self.has_borders:
@@ -411,12 +528,19 @@ class Window(DrawableRect):
             print_no_newline(self._last_drawn_buffer)
 
         # debug
+        redraw_duration = time.perf_counter() - start_time
         if self._debug:
+            draw_indicator = "|" if (self._draw_count % 2 == 1) else "─"
+            was_forced = " FORCED" if self._is_force_redrawing else ""
+            debug_string = term.black_on_pink(f" Window: {self.width}x{self.height} at {self.position}, {redraw_duration * 1000:.1f} ms {draw_indicator}{was_forced} ")
             with term.location(*self.position):
-                draw_indicator = "|" if (self._draw_count % 2 == 1) else "─"
-                was_forced = " FORCED" if self._is_force_redrawing else ""
-                debug_string = term.black_on_pink(f" Window {self.width}x{self.height} at {self.position} {draw_indicator}{was_forced} ")
                 print_no_newline(debug_string)
+
+            if self._debug_content_buffer:
+                debug_string = term.black_on_pink(f" Debug: {self._debug_content_buffer} ")
+                debug_string = TextUtils.truncate_to_box(debug_string, self.width, 1)
+                with term.location(self.pos_x + self.width - 1 - term.length(debug_string), self.pos_y + self.height - 1):
+                    print_no_newline(debug_string)
 
 
 class DrawableRectStack(DrawableRect):
@@ -438,6 +562,7 @@ class DrawableRectStack(DrawableRect):
         term = self._term
 
         # debug
+        start_time = time.perf_counter()
         for rect in self._rects:
             rect._debug = self._debug
 
@@ -483,21 +608,19 @@ class DrawableRectStack(DrawableRect):
             self._rects[i].max_height = None
 
         # debug
+        redraw_duration = time.perf_counter() - start_time
         if self._debug:
             string = term.black_on_purple(f" ") + "\n"
 
-            with term.location(*self.position):
-                print_no_newline(string)
-
-            string = term.black_on_purple(f" Stack ({len(self._rects)} rects, {len(enabled_rects)} active): ")
+            string += term.black_on_purple(f" Stack: {len(self._rects)} rects, {len(enabled_rects)} active, {redraw_duration*1000:.0f} ms ")
 
             for i, rect in enumerate(self._rects):
                 string += "\n"
                 color = term.black_on_purple if rect.enabled else term.gray70_on_purple
                 string += term.black_on_purple(color(f"   ({i}) {rect.pos_y:>3} {rect.max_height} "))
 
-            string = TextUtils.pad_to_itself(string)
-            string += "".join([f"\n{term.black_on_purple(' ')}" for _ in range(self.height - len(self._rects) - 1)])
+            # string = TextUtils.pad_to_itself(string)
+            string += "".join([f"\n{term.black_on_purple(' ')}" for _ in range(self.height - len(self._rects) - 2)])
 
             with term.location(*self.position):
                 print_no_newline(string)
