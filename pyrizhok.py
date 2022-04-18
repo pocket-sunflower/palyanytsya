@@ -8,7 +8,7 @@ from humanfriendly.terminal import ansi_wrap
 
 from MHDDoS.methods.methods import Methods
 from MHDDoS.start import start, Tools
-from utils import print_vpn_warning, supports_complex_colors
+from utils.misc import print_vpn_warning, supports_complex_colors
 
 
 def get_flair_string():
