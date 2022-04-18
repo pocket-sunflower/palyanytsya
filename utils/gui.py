@@ -50,12 +50,12 @@ def get_flair_string(t: Terminal = None):
     flair_string = "\n" + \
                    t.green(f"A heavy-duty freedom-infused MHDDoS wrapper...\n") + \
                    "\n" + \
-                   t.blue("██████╗░░█████╗░██╗░░░░░██╗░░░██╗░█████╗░███╗░░██╗██╗░░░██╗████████╗░██████╗██╗░░░██╗░█████╗░\n") + \
-                   t.blue("██╔══██╗██╔══██╗██║░░░░░╚██╗░██╔╝██╔══██╗████╗░██║╚██╗░██╔╝╚══██╔══╝██╔════╝╚██╗░██╔╝██╔══██╗\n") + \
-                   t.blue("██████╔╝███████║██║░░░░░░╚████╔╝░███████║██╔██╗██║░╚████╔╝░░░░██║░░░╚█████╗░░╚████╔╝░███████║\n") + \
-                   t.gold("██╔═══╝░██╔══██║██║░░░░░░░╚██╔╝░░██╔══██║██║╚████║░░╚██╔╝░░░░░██║░░░░╚═══██╗░░╚██╔╝░░██╔══██║\n") + \
-                   t.gold("██║░░░░░██║░░██║███████╗░░░██║░░░██║░░██║██║░╚███║░░░██║░░░░░░██║░░░██████╔╝░░░██║░░░██║░░██║\n") + \
-                   t.gold("╚═╝░░░░░╚═╝░░╚═╝╚══════╝░░░╚═╝░░░╚═╝░░╚═╝╚═╝░░╚══╝░░░╚═╝░░░░░░╚═╝░░░╚═════╝░░░░╚═╝░░░╚═╝░░╚═╝\n") + \
+                   color_ua_blue("██████╗░░█████╗░██╗░░░░░██╗░░░██╗░█████╗░███╗░░██╗██╗░░░██╗████████╗░██████╗██╗░░░██╗░█████╗░\n") + \
+                   color_ua_blue("██╔══██╗██╔══██╗██║░░░░░╚██╗░██╔╝██╔══██╗████╗░██║╚██╗░██╔╝╚══██╔══╝██╔════╝╚██╗░██╔╝██╔══██╗\n") + \
+                   color_ua_blue("██████╔╝███████║██║░░░░░░╚████╔╝░███████║██╔██╗██║░╚████╔╝░░░░██║░░░╚█████╗░░╚████╔╝░███████║\n") + \
+                   color_ua_yellow("██╔═══╝░██╔══██║██║░░░░░░░╚██╔╝░░██╔══██║██║╚████║░░╚██╔╝░░░░░██║░░░░╚═══██╗░░╚██╔╝░░██╔══██║\n") + \
+                   color_ua_yellow("██║░░░░░██║░░██║███████╗░░░██║░░░██║░░██║██║░╚███║░░░██║░░░░░░██║░░░██████╔╝░░░██║░░░██║░░██║\n") + \
+                   color_ua_yellow("╚═╝░░░░░╚═╝░░╚═╝╚══════╝░░░╚═╝░░░╚═╝░░╚═╝╚═╝░░╚══╝░░░╚═╝░░░░░░╚═╝░░░╚═════╝░░░░╚═╝░░░╚═╝░░╚═╝\n") + \
                    "\n" + \
                    t.green(f"                                                                  ...from Ukraine with love {heart}")
     return flair_string
@@ -179,7 +179,7 @@ class GUI(Thread, Drawable):
 
         all_gui_elements = []
 
-        spacer = Window(term, lambda _: None)
+        spacer = Window(term, lambda window: window.set_content(" "))
 
         flair_window = Window(
             term,
@@ -469,7 +469,12 @@ class GUI(Thread, Drawable):
                 header_o += f": {self._supervisor_state.attack_processes_count} ATTACKS RUNNING"
             else:
                 header_o += ": NO ATTACKS RUNNING"
+
         header_o = f" {header_o} "
+
+        if self._is_in_attacks_view and (term.number_of_colors <= 16):
+            header_o = TextUtils.color(header_o, color_selection)
+
         header_o = TextUtils.wrap_in_border(header_o)
         if not self._is_in_attacks_view:
             header_o = TextUtils.color(header_o, color_muted)
@@ -479,7 +484,12 @@ class GUI(Thread, Drawable):
         header_d = f"DETAILS"
         if self._is_in_target_status_view:
             header_d += f": ATTACK {index + 1}/{self._supervisor_state.attack_processes_count}"
+
         header_d = f" {header_d} "
+
+        if self._is_in_target_status_view and (term.number_of_colors <= 16):
+            header_d = TextUtils.color(header_d, color_selection)
+
         header_d = TextUtils.wrap_in_border(header_d)
         if not self._is_in_target_status_view:
             header_d = TextUtils.color(header_d, color_muted)
