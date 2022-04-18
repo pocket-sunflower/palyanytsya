@@ -90,7 +90,6 @@ class Connectivity(enum.IntEnum):
 
 @dataclass(slots=True, order=True, frozen=True)
 class ConnectivityState:
-    timestamp: float
     target: Target
 
     layer_7: Response | RequestException | None
@@ -102,6 +101,14 @@ class ConnectivityState:
     connectivity_l7: Connectivity = Connectivity.UNKNOWN
 
     validated_proxies_indices: List[int] = field(default_factory=list)
+
+    timestamp: float = field(default_factory=time.time)
+
+    def __eq__(self, other):
+        if not isinstance(other, ConnectivityState):
+            return False
+
+        return self.timestamp == other.timestamp
 
     def __post_init__(self):
         connectivity_l4: Connectivity = max(
@@ -132,7 +139,10 @@ class ConnectivityState:
 
     @property
     def uses_proxies(self) -> bool:
-        return bool(self.layer_4_proxied) or bool(self.layer_7_proxied)
+        uses_layer_4 = (self.layer_4_proxied is not None) and (len(self.layer_4_proxied) > 0)
+        uses_layer_7 = (self.layer_7_proxied is not None) and (len(self.layer_7_proxied) > 0)
+
+        return uses_layer_4 or uses_layer_7
 
     @property
     def has_valid_proxies(self) -> bool:
@@ -143,11 +153,29 @@ class ConnectivityState:
 
     @property
     def total_proxies_count(self) -> int:
-        if self.layer_4_proxied:
+        uses_layer_4 = (self.layer_4_proxied is not None) and (len(self.layer_4_proxied) > 0)
+        if uses_layer_4:
             return len(self.layer_4_proxied)
-        if self.layer_7_proxied:
+
+        uses_layer_7 = (self.layer_7_proxied is not None) and (len(self.layer_7_proxied) > 0)
+        if uses_layer_7:
             return len(self.layer_7_proxied)
+
         return 0
+
+    @property
+    def total_states(self):
+        count = 0
+
+        if self.layer_4 is not None:
+            count += 1
+
+        if self.layer_7 is not None:
+            count += 1
+
+        count += self.total_proxies_count
+
+        return count
 
     def get_valid_proxies(self, original_proxies_list: List[Proxy]) -> List[Proxy]:
         """

@@ -192,7 +192,7 @@ class GUI(Thread, Drawable):
         supervisor_window = Window(
             term,
             content_update_callback=self._draw_supervisor,
-            change_callback=lambda: self._supervisor_state
+            change_callback=lambda: self._last_supervisor_update_time
         )
         supervisor_window.max_height = self.SUPERVISOR_HEIGHT
         all_gui_elements.append(supervisor_window)
@@ -202,7 +202,9 @@ class GUI(Thread, Drawable):
             content_update_callback=self._draw_header,
             change_callback=lambda: (
                 self._is_in_target_status_view,
-                self._supervisor_state)
+                self._last_supervisor_update_time,
+                self._selected_attack_index
+            )
         )
         header_window.max_height = 3
         all_gui_elements.append(header_window)
@@ -211,7 +213,7 @@ class GUI(Thread, Drawable):
             term,
             content_update_callback=self._draw_attacks,
             change_callback=lambda: (
-                self._supervisor_state.attack_states if self._supervisor_state else [],
+                self._last_supervisor_update_time,
                 self._selected_attack_index
             )
         )
@@ -220,7 +222,7 @@ class GUI(Thread, Drawable):
             term,
             content_update_callback=self._draw_attacks_pagination,
             change_callback=lambda: (
-                self._supervisor_state.attack_states if self._supervisor_state else [],
+                self._last_supervisor_update_time,
                 self._selected_attack_index
             )
         )
@@ -229,7 +231,7 @@ class GUI(Thread, Drawable):
             rects=[
                 attacks_window,
                 attacks_pagination_window,
-                # spacer
+                spacer
             ]
         )
         all_gui_elements.append(self._attacks_view)
@@ -238,7 +240,7 @@ class GUI(Thread, Drawable):
             term,
             content_update_callback=self._draw_target_status,
             change_callback=lambda: (
-                self._supervisor_state.attack_states if self._supervisor_state else [],
+                self._last_supervisor_update_time,
                 self._selected_attack_index
             )
         )
@@ -247,8 +249,9 @@ class GUI(Thread, Drawable):
             term,
             content_update_callback=self._draw_target_connectivity,
             change_callback=lambda: (
-                self._supervisor_state.attack_states if self._supervisor_state else [],
+                self._last_supervisor_update_time,
                 self._selected_attack_index,
+                self._connectivity_page_index
             )
         )
         connectivity_window.max_height = self.CONNECTIVITIES_TABLE_HEADER_HEIGHT + self.CONNECTIVITIES_TABLE_ROW_HEIGHT * self.CONNECTIVITIES_PER_PAGE
@@ -256,7 +259,7 @@ class GUI(Thread, Drawable):
             term,
             content_update_callback=self._draw_target_connectivity_pagination,
             change_callback=lambda: (
-                self._supervisor_state.attack_states if self._supervisor_state else [],
+                self._last_supervisor_update_time,
                 self._selected_attack_index,
                 self._connectivity_page_index
             )
@@ -267,7 +270,7 @@ class GUI(Thread, Drawable):
                 target_status_window,
                 connectivity_window,
                 connectivity_pagination_window,
-                # spacer
+                spacer
             ]
         )
         self._target_status_view.enabled = False
@@ -286,7 +289,7 @@ class GUI(Thread, Drawable):
             rects=all_gui_elements
         )
         self._gui_stack.max_width = self.MAX_GUI_WIDTH
-        self._gui_stack._debug = True
+        self._gui_stack._debug = False
 
         # INTERACTIONS
 
@@ -332,12 +335,27 @@ class GUI(Thread, Drawable):
     # PROPERTIES
 
     @property
-    def _is_attacks_info_available(self) -> bool:
+    def _last_supervisor_update_time(self) -> float:
+        if self._is_supervisor_loaded:
+            return self._supervisor_state.timestamp
+        return -1
+
+    @property
+    def _is_supervisor_loaded(self) -> bool:
         if self._supervisor_state is None:
             return False
+
+        return True
+
+    @property
+    def _is_attacks_info_available(self) -> bool:
+        if not self._is_supervisor_loaded:
+            return False
+
         attack_states = self._supervisor_state.attack_states
         if (attack_states is None) or (len(attack_states) == 0):
             return False
+
         return True
 
     @property
@@ -358,7 +376,7 @@ class GUI(Thread, Drawable):
 
         drawing_time = time.perf_counter() - start
         self._ui_drawing_time = max(drawing_time, 0.0001)
-        time_sting = f" GUI: {1 / self._ui_drawing_time:>3.1f} FPS "
+        time_sting = f" GUI: {1 / self._ui_drawing_time:>6.1f} FPS "
         time_sting = color_time_string(time_sting)
         width = TextUtils.width(time_sting)
         with term.location(term.width - width, term.height):
@@ -575,6 +593,8 @@ class GUI(Thread, Drawable):
         window.center_content()
 
     def _draw_target_connectivity_pagination(self, window: Window):
+        start = time.perf_counter()
+
         window.clear_content()
 
         if not self._is_attacks_info_available:
@@ -590,15 +610,24 @@ class GUI(Thread, Drawable):
         window.add_content(pagination_text)
         window.center_content()
 
+        duration = time.perf_counter() - start
+        window._set_debug_conent(f"{duration*1000:.1f} ms")
 
     def _draw_nav_tips(self, window: Window):
         color = color_navigation_keys
-        up = color("UP")
-        down = color("DOWN")
-        left = color("LEFT")
-        right = color("RIGHT")
+        up = color(" UP ")
+        down = color(" DOWN ")
+        left = color(" LEFT ")
+        right = color(" RIGHT ")
 
-        s = f"Navigation: {down} = next attack, {up} = previous attack, {left} = all attacks, {right} = selected attack details"
+        s = f"Navigation: "
+
+        if self._is_in_attacks_view:
+            s += f"{down} = select next attack, {up} = select previous attack, {right} = show attack details"
+        elif self._is_in_target_status_view:
+            s += f"{down} = next connectivity page, {up} = previous connectivity page, "
+            s += f"{left} = go back to attacks menu"
+
         s = f" {s} "
 
         window.set_content(s)
@@ -611,7 +640,9 @@ class GUI(Thread, Drawable):
 
         string = f"PAGE {page_number}/{total_pages}"
 
-        if page_number == 1:
+        if total_pages == 1:
+            string = f"{string}"
+        elif page_number == 1:
             string = f"{string} ▼"
         elif page_number == total_pages:
             string = f"▲ {string}"
@@ -625,9 +656,9 @@ class GUI(Thread, Drawable):
     def _add_header_to_attack_state_table(self, table: PrettyTable) -> None:
         attacks_table_columns = [
             "\nTarget",
+            "\nProxies",
             "\nConnectivity",
             "\nMethods",
-            "\nProxies",
             "\nRequests/s\n(total)",
             "\nBytes/s\n(total)",
             # "\nPID",
@@ -708,9 +739,9 @@ class GUI(Thread, Drawable):
 
         row_entries = [
             attack.target,
+            proxies_string,
             target_status_string,
             attack_methods_string,
-            proxies_string,
             requests_string,
             bytes_string,
             # attack.attack_pid,
@@ -754,20 +785,24 @@ class GUI(Thread, Drawable):
         color = GUI._get_term_color_for_connectivity(c)
 
         if c == Connectivity.UNREACHABLE:
-            s = "Unreachable\n(may be down)"
+            s = f"Unreachable\n(may be down)"
         elif c == Connectivity.UNRESPONSIVE:
             s = "Unresponsive\n(may be down)"
         elif c == Connectivity.PARTIALLY_REACHABLE:
-            s = "Partially\nreachable \n(suffering)"
+            s = "Partially\nreachable"
         elif c == Connectivity.REACHABLE:
-            s = "Reachable\n"
-            s += f"(through {connectivity_state.valid_proxies_count} proxies)"
+            s = f"Reachable"
+            if connectivity_state.uses_proxies:
+                if connectivity_state.valid_proxies_count > 1:
+                    s += f"\n(through {connectivity_state.valid_proxies_count} proxies)"
+                else:
+                    s += f"\n(through {connectivity_state.valid_proxies_count} proxies)"
         else:
             s = "Unknown"
 
         s = TextUtils.color(s, color)
 
-        return color(s)
+        return s
 
     @staticmethod
     def _get_term_color_for_connectivity(c: Connectivity) -> Callable[[str], str]:
@@ -804,23 +839,19 @@ class GUI(Thread, Drawable):
             c = Connectivity.get_for_layer_4(layer_4)
 
             message = ""
-            color = term.white
+            color = self._get_term_color_for_connectivity(c)
 
             if c == Connectivity.REACHABLE:
-                color = color_ok
                 message = f"REACHABLE\n" \
-                          f"Ping {layer_4.avg_rtt:.0f} ms\n" \
+                          f"Ping {layer_4.avg_rtt:.0f} ms \n" \
                           f"No packets lost"
             elif Connectivity.PARTIALLY_REACHABLE:
-                color = color_warning
-                message = f"PARTIALLY REACHABLE\n" \
-                          f"Ping {layer_4.avg_rtt:.0f} ms\n" \
+                message = f"PARTIALLY REACHABLE \n" \
+                          f"Ping {layer_4.avg_rtt:.0f} ms \n" \
                           f"{layer_4.packet_loss * 100:.0f}% packet loss"
             elif Connectivity.UNREACHABLE:
-                color = color_bad
                 message = f"UNREACHABLE"
             elif c == Connectivity.UNKNOWN:
-                color = color_muted
                 message = f"UNKNOWN"
 
             message = TextUtils.color(message, color)
@@ -878,21 +909,33 @@ class GUI(Thread, Drawable):
         else:
             n_connectivities = max(connectivity.total_proxies_count, 1)
             start_index, stop_index = Pagination.get_page_bounds(self._connectivity_page_index, self.CONNECTIVITIES_PER_PAGE, n_connectivities)
+
             if target.is_layer_4:
-                for i, layer_4 in enumerate(connectivity.layer_4_proxied[start_index:stop_index]):
-                    # TODO: display proxy address
-                    proxy_string = f"Proxy {i + 1}"
+
+                layer_4_proxied = connectivity.layer_4_proxied[start_index:stop_index]
+                for i, layer_4 in enumerate(layer_4_proxied):
+
+                    proxy_index = start_index + i
+                    proxy_address = self._supervisor_state.proxies_addresses[proxy_index]
+                    proxy_string = f"Proxy {proxy_index + 1}: {proxy_address}"
                     proxy_string = TextUtils.color(proxy_string, color_special)
+
                     row = [
                         proxy_string,
                         get_connectivity_string_l4(layer_4)
                     ]
                     table.add_row(row)
+
             if target.is_layer_7:
-                for i, layer_7 in enumerate(connectivity.layer_7_proxied[start_index:stop_index]):
-                    # TODO: display proxy address
-                    proxy_string = f"Proxy {i + 1}"
+
+                layer_7_proxied = connectivity.layer_7_proxied[start_index:stop_index]
+                for i, layer_7 in enumerate(layer_7_proxied):
+
+                    proxy_index = start_index + i
+                    proxy_address = self._supervisor_state.proxies_addresses[proxy_index]
+                    proxy_string = f"Proxy {proxy_index + 1}: {proxy_address}"
                     proxy_string = TextUtils.color(proxy_string, color_special)
+
                     row = [
                         proxy_string,
                         get_connectivity_string_l7(layer_7)
@@ -948,13 +991,25 @@ class GUI(Thread, Drawable):
         if key.is_sequence:
             if self._is_attacks_info_available:
                 if key.code == term.KEY_UP:
-                    self._select_previous_attack()
-                if key.code == term.KEY_DOWN:
-                    self._select_next_attack()
-                if key.code == term.KEY_RIGHT:
+                    self._select_previous_item()
+                elif key.code == term.KEY_DOWN:
+                    self._select_next_item()
+                elif key.code == term.KEY_RIGHT:
                     self._switch_to_target_status_view()
-                if key.code == term.KEY_LEFT:
+                elif key.code == term.KEY_LEFT:
                     self._switch_to_attacks_view()
+
+    def _select_next_item(self):
+        if self._is_in_attacks_view:
+            self._select_next_attack()
+        elif self._is_in_target_status_view:
+            self._select_next_connectivity_page()
+
+    def _select_previous_item(self):
+        if self._is_in_attacks_view:
+            self._select_previous_attack()
+        elif self._is_in_target_status_view:
+            self._select_previous_connectivity_page()
 
     def _switch_to_attacks_view(self):
         self._attacks_view.enabled = True
@@ -973,7 +1028,35 @@ class GUI(Thread, Drawable):
             self._selected_attack_index = 0
 
     def _select_previous_attack(self):
+        if not self._is_attacks_info_available:
+            return
 
         self._selected_attack_index -= 1
         if self._selected_attack_index < 0:
             self._selected_attack_index = len(self._supervisor_state.attack_states) - 1
+
+    def _select_next_connectivity_page(self):
+        if not self._is_attacks_info_available:
+            return
+
+        selected_attack = self._supervisor_state.attack_states[self._selected_attack_index]
+        if selected_attack.connectivity_state is None:
+            return
+
+        self._connectivity_page_index += 1
+        total_pages = Pagination.get_total_pages(self.CONNECTIVITIES_PER_PAGE, selected_attack.connectivity_state.total_states)
+        if self._connectivity_page_index > total_pages - 1:
+            self._connectivity_page_index = 0
+
+    def _select_previous_connectivity_page(self):
+        if not self._is_attacks_info_available:
+            return
+
+        selected_attack = self._supervisor_state.attack_states[self._selected_attack_index]
+        if selected_attack.connectivity_state is None:
+            return
+
+        self._connectivity_page_index -= 1
+        if self._connectivity_page_index < 0:
+            total_pages = Pagination.get_total_pages(self.CONNECTIVITIES_PER_PAGE, selected_attack.connectivity_state.total_states)
+            self._connectivity_page_index = total_pages - 1

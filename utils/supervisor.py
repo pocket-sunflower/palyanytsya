@@ -1,12 +1,13 @@
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from multiprocessing import Queue, Process
 from queue import Empty
 from threading import Thread
 from typing import List, Dict
 
 import psutil
+from PyRoxy import Proxy
 
 from MHDDoS.attack import Attack, AttackState
 from MHDDoS.utils.config_files import read_configuration_file_lines
@@ -25,6 +26,15 @@ class AttackSupervisorState:
     attack_processes_count: int
 
     attack_states: List[AttackState]
+    proxies_addresses: List[str]
+
+    timestamp: float = field(default_factory=time.time)
+
+    def __eq__(self, other):
+        if not isinstance(other, AttackSupervisorState):
+            return False
+
+        return self.timestamp == other.timestamp
 
 
 class AttackSupervisor(Thread):
@@ -44,7 +54,7 @@ class AttackSupervisor(Thread):
     _proxies_fetch_interval: TimeInterval
 
     _internal_loop_sleep_interval: float = 0.01
-    _state_publish_interval: float = 0.1
+    _state_publish_interval: float = 0.5
 
     _is_fetching_proxies: bool = False
     _is_fetching_targets: bool = False
@@ -79,8 +89,14 @@ class AttackSupervisor(Thread):
         state_publisher_thread.start()
 
         while not self._stop_event.is_set():
-            targets_changed = self._fetch_targets()
-            proxies_changed = self._fetch_proxies()
+
+            targets_changed = False
+            if self._targets_fetch_interval.check_if_has_passed():
+                targets_changed = self._fetch_targets()
+
+            proxies_changed = False
+            if self._proxies_fetch_interval.check_if_has_passed():
+                proxies_changed = self._fetch_proxies()
 
             if targets_changed or proxies_changed:
                 self._restart_attacks()
@@ -106,9 +122,6 @@ class AttackSupervisor(Thread):
         Returns:
             True if targets have changed, False otherwise.
         """
-        if not self._targets_fetch_interval.check_if_has_passed():
-            return False
-
         logger = self.logger
 
         self._is_fetching_targets = True
@@ -155,8 +168,6 @@ class AttackSupervisor(Thread):
 
         proxies_file_path = self._args.proxies
         if proxies_file_path is None:
-            return False
-        if not self._proxies_fetch_interval.check_if_has_passed():
             return False
 
         self._is_fetching_proxies = True
@@ -252,6 +263,7 @@ class AttackSupervisor(Thread):
                 proxies_count=len(self._proxies_addresses),
                 attack_processes_count=len(self._attack_processes),
                 attack_states=sorted_attack_states,
+                proxies_addresses=self._proxies_addresses
             )
             self._supervisor_state_queue.put(state)
 
@@ -260,7 +272,7 @@ class AttackSupervisor(Thread):
     @staticmethod
     def _compare_lists(list_a: List, list_b: List) -> bool:
         """
-        Compares in two lists have the same items.
+        Compares if two lists have the same items.
         The lists get sorted in-place before the comparison.
 
         Args:

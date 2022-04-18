@@ -487,7 +487,7 @@ class Window(DrawableRect):
         self._debug_content_buffer = string
 
     def _check_should_update_content(self) -> bool:
-        if not self._change_callback:
+        if self._change_callback is None:
             return True
 
         value = self._change_callback()
@@ -507,8 +507,12 @@ class Window(DrawableRect):
         width = self.width_for_content
         height = self.height_for_content
 
+        start = time.perf_counter()
+
         if not self._is_force_redrawing and not self._check_should_update_content():
             return
+
+        duration = time.perf_counter() - start
 
         # invoke draw callback to update the content
         self._content_update_callback(self)
@@ -527,6 +531,7 @@ class Window(DrawableRect):
         with term.location(self.pos_x, self.pos_y):
             print_no_newline(self._last_drawn_buffer)
 
+
         # debug
         redraw_duration = time.perf_counter() - start_time
         if self._debug:
@@ -536,6 +541,8 @@ class Window(DrawableRect):
             with term.location(*self.position):
                 print_no_newline(debug_string)
 
+            self._clear_debug_conent()
+            self._set_debug_conent(f"ho {duration * 1000:.1f} ms")
             if self._debug_content_buffer:
                 debug_string = term.black_on_pink(f" Debug: {self._debug_content_buffer} ")
                 debug_string = TextUtils.truncate_to_box(debug_string, self.width, 1)
