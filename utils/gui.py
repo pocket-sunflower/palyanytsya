@@ -44,6 +44,49 @@ def get_flair_string(t: Terminal = None):
     return flair_string
 
 
+class Pagination:
+    """
+    Collection of helper functions to help with paginating tables.
+    """
+
+    @staticmethod
+    def get_total_pages(items_per_page: int, total_items: int):
+        total_pages = math.ceil(total_items / items_per_page)
+        return total_pages
+
+    @staticmethod
+    def get_page_index(item_index: int, items_per_page: int, total_items: int) -> int:
+        total_pages = math.ceil(total_items / items_per_page)
+        page_index = math.floor(item_index / items_per_page)
+
+        last_page_index = total_pages - 1
+        if page_index > last_page_index:
+            return last_page_index
+
+        return page_index
+
+    @staticmethod
+    def get_page_bounds(page_index: int, items_per_page: int, total_items: int) -> (int, int):
+        total_pages = math.ceil(total_items / items_per_page)
+        last_page_index = total_pages - 1
+        if page_index > last_page_index:
+            page_index = last_page_index
+
+        page_start_index = page_index * items_per_page
+
+        if page_index == last_page_index:
+            page_end_index = total_items
+        else:
+            page_end_index = page_start_index + items_per_page
+
+        return page_start_index, page_end_index
+
+    @staticmethod
+    def get_item_index_on_page(item_index: int, items_per_page: int) -> int:
+        item_index_on_page = item_index % items_per_page
+        return item_index_on_page
+
+
 # MAIN GUI THREAD
 class GUI(Thread, Drawable):
     """GUI thread of Palyanytsya."""
@@ -63,13 +106,20 @@ class GUI(Thread, Drawable):
 
     # INTERACTIONS
     _keyboard_listener: KeyboardListener
-    _selected_attack_index: int | None = 0
+    _selected_attack_index: int = 0
+    _connectivity_page_index: int = 0
 
     SUPERVISOR_HEIGHT = 1
     FLAIR_HEIGHT = 12
     MAX_GUI_WIDTH = 300
+    ATTACKS_PER_PAGE = 5
+    ATTACKS_TABLE_HEADER_HEIGHT = 5
+    ATTACKS_TABLE_ROW_HEIGHT = 3
+    CONNECTIVITIES_TABLE_HEADER_HEIGHT = 3
+    CONNECTIVITIES_TABLE_ROW_HEIGHT = 4
+    CONNECTIVITIES_PER_PAGE = 4
 
-    _attacks_table = PrettyTable(
+    _table = PrettyTable(
         hrules=ALL,
         header=False,
         left_padding_width=1,
@@ -108,9 +158,11 @@ class GUI(Thread, Drawable):
         stop_event.clear()
         self._stop_event = stop_event
 
-        # WINDOWS
+        # ASSEMBLE THE GUI
 
         all_gui_elements = []
+
+        spacer = Window(term, lambda _: None)
 
         flair_window = Window(
             term,
@@ -118,7 +170,6 @@ class GUI(Thread, Drawable):
             change_callback=lambda: self._flair_update_interval.check_if_has_passed()
         )
         flair_window.max_height = self.FLAIR_HEIGHT
-        flair_window.max_width = self.MAX_GUI_WIDTH
         all_gui_elements.append(flair_window)
 
         supervisor_window = Window(
@@ -146,10 +197,21 @@ class GUI(Thread, Drawable):
                 self._supervisor_state.attack_states if self._supervisor_state else []
             )
         )
+        attacks_window.max_height = self.ATTACKS_TABLE_HEADER_HEIGHT + self.ATTACKS_TABLE_ROW_HEIGHT * self.ATTACKS_PER_PAGE
+        attacks_pagination_window = Window(
+            term,
+            content_update_callback=self._draw_attacks_pagination,
+            change_callback=lambda: (
+                self._supervisor_state.attack_states if self._supervisor_state else [],
+                self._selected_attack_index
+            )
+        )
         self._attacks_view = DrawableRectStack(
             term,
             rects=[
-                attacks_window
+                attacks_window,
+                attacks_pagination_window,
+                # spacer
             ]
         )
         all_gui_elements.append(self._attacks_view)
@@ -162,10 +224,32 @@ class GUI(Thread, Drawable):
                 self._selected_attack_index
             )
         )
+        target_status_window.max_height = self.ATTACKS_TABLE_HEADER_HEIGHT + self.ATTACKS_TABLE_ROW_HEIGHT
+        connectivity_window = Window(
+            term,
+            content_update_callback=self._draw_target_connectivity,
+            change_callback=lambda: (
+                self._supervisor_state.attack_states if self._supervisor_state else [],
+                self._selected_attack_index,
+            )
+        )
+        connectivity_window.max_height = self.CONNECTIVITIES_TABLE_HEADER_HEIGHT + self.CONNECTIVITIES_TABLE_ROW_HEIGHT * self.CONNECTIVITIES_PER_PAGE
+        connectivity_pagination_window = Window(
+            term,
+            content_update_callback=self._draw_target_connectivity_pagination,
+            change_callback=lambda: (
+                self._supervisor_state.attack_states if self._supervisor_state else [],
+                self._selected_attack_index,
+                self._connectivity_page_index
+            )
+        )
         self._target_status_view = DrawableRectStack(
             term,
             rects=[
-                target_status_window
+                target_status_window,
+                connectivity_window,
+                connectivity_pagination_window,
+                # spacer
             ]
         )
         self._target_status_view.enabled = False
@@ -384,10 +468,10 @@ class GUI(Thread, Drawable):
         window.center_content()
 
     def _draw_attacks(self, window: Window):
-        attacks_table = self._attacks_table
-        attacks_table.clear()
-
         window.clear_content()
+
+        attacks_table = self._table
+        attacks_table.clear()
 
         if self._supervisor_state is None:
             s = " Waiting for supervisor to initialize... "
@@ -400,29 +484,52 @@ class GUI(Thread, Drawable):
         else:
             # table
             self._add_header_to_attack_state_table(attacks_table)
-            for attack in self._supervisor_state.attack_states:
+
+            attacks = self._supervisor_state.attack_states
+            n_attacks = len(attacks)
+            n_attack_pages = math.ceil(n_attacks / self.ATTACKS_PER_PAGE)
+
+            page_index = Pagination.get_page_index(self._selected_attack_index, self.ATTACKS_PER_PAGE, n_attacks)
+            start_index, stop_index = Pagination.get_page_bounds(page_index, self.ATTACKS_PER_PAGE, n_attacks)
+
+            for attack in attacks[start_index:stop_index]:
                 self._add_attack_row_to_attack_state_table(attacks_table, attack)
+
             table_string = attacks_table.get_string()
             table_string = self._color_table_row(0, attacks_table, table_string, term.black_on_orange, term.orange)
-            table_string = self._color_table_row(1 + self._selected_attack_index, attacks_table, table_string, None, term.black_on_bright_white)
+            selected_attack_index_on_page = Pagination.get_item_index_on_page(self._selected_attack_index, self.ATTACKS_PER_PAGE)
+            table_string = self._color_table_row(1 + selected_attack_index_on_page, attacks_table, table_string, term.black_on_bright_white, term.black_on_bright_white)
             window.add_content(table_string)
 
         window.center_content()
 
-    def _draw_target_status(self, window: Window):
-        if self._supervisor_state is None:
+    def _draw_attacks_pagination(self, window: Window):
+        window.clear_content()
+
+        if not self._is_attacks_info_available:
             return
 
+        attacks = self._supervisor_state.attack_states
+        n_attacks = len(attacks)
+        page_index = Pagination.get_page_index(self._selected_attack_index, self.ATTACKS_PER_PAGE, n_attacks)
+        pagination_text = self.get_pagination_string(page_index, self.ATTACKS_PER_PAGE, n_attacks)
+
+        window.set_content(pagination_text)
+        window.center_content()
+
+    def _draw_target_status(self, window: Window):
+        window.clear_content()
+
+        if self._supervisor_state is None:
+            return
         if self._selected_attack_index > len(self._supervisor_state.attack_states) - 1:
             window.enabled = False
             return
 
         attack_state = self._supervisor_state.attack_states[self._selected_attack_index]
 
-        window.clear_content()
-
         # ATTACK INFO
-        table = self._attacks_table
+        table = self._table
         table.clear()
         self._add_header_to_attack_state_table(table)
         self._add_attack_row_to_attack_state_table(table, attack_state)
@@ -431,6 +538,20 @@ class GUI(Thread, Drawable):
         window.add_content(table_string)
 
         # CONNECTIVITY INFO
+
+        window.center_content()
+
+    def _draw_target_connectivity(self, window: Window):
+        window.clear_content()
+
+        if self._supervisor_state is None:
+            return
+        if self._selected_attack_index > len(self._supervisor_state.attack_states) - 1:
+            return
+
+        table = self._table
+        attack_state = self._supervisor_state.attack_states[self._selected_attack_index]
+
         if attack_state.connectivity_state is None:
             tip = "Waiting for connectivity check results to arrive..."
             window.add_content(tip)
@@ -444,6 +565,24 @@ class GUI(Thread, Drawable):
 
         window.center_content()
 
+    def _draw_target_connectivity_pagination(self, window: Window):
+        window.clear_content()
+
+        if not self._is_attacks_info_available:
+            return
+
+        connectivity = self._supervisor_state.attack_states[self._selected_attack_index].connectivity_state
+        if connectivity is None:
+            return
+
+        n_connectivities = max(connectivity.total_proxies_count, 1)
+        pagination_text = self.get_pagination_string(self._connectivity_page_index, self.CONNECTIVITIES_PER_PAGE, n_connectivities)
+
+        window.add_content(pagination_text)
+        window.center_content()
+
+
+
     def _draw_nav_tips(self, window: Window):
         color = term.black_on_yellow
         up = color("UP")
@@ -456,6 +595,22 @@ class GUI(Thread, Drawable):
 
         window.set_content(s)
         window.center_content()
+
+    @staticmethod
+    def get_pagination_string(page_index: int, items_per_page: int, total_items: int) -> str:
+        page_number = page_index + 1
+        total_pages = Pagination.get_total_pages(items_per_page, total_items)
+
+        string = f"PAGE {page_number}/{total_pages}"
+
+        if page_number == 1:
+            string = f"{string} ▼"
+        elif page_number == total_pages:
+            string = f"▲ {string}"
+        else:
+            string = f"▲ {string} ▼"
+
+        return string
 
     # ATTACKS TABLE METHODS
 
@@ -487,7 +642,14 @@ class GUI(Thread, Drawable):
                                     "methods found)"
             attack_methods_string = TextUtils.color(attack_methods_string, term.red)
         else:
-            attack_methods_string = "\n".join(attack.attack_methods)
+            n_attack_methods = len(attack.attack_methods)
+            first_two = attack.attack_methods[0:2] if (n_attack_methods > 1) else attack.attack_methods
+            if n_attack_methods > 2:
+                first = attack.attack_methods[0]
+                attack_methods_string = f"{first}\n(+{n_attack_methods - 1} more)"
+            else:
+                attack_methods_string = "\n".join(first_two)
+
             attack_methods_string = TextUtils.color(attack_methods_string, term.cyan)
 
         # requests
@@ -519,8 +681,10 @@ class GUI(Thread, Drawable):
             n_proxies_ignored = n_proxies_total - n_proxies_used
 
             if n_proxies_used > 0:
-                color = term.green if (attack.connectivity_state and attack.connectivity_state.has_valid_proxies) else term.white
-                proxies_string += f"{color(f'{n_proxies_used} used')}\n"
+                if attack.connectivity_state and attack.connectivity_state.has_valid_proxies:
+                    proxies_string += f"{term.green(f'{n_proxies_used} used')}\n"
+                else:
+                    proxies_string += f"{n_proxies_used} used\n"
             else:
                 proxies_string += f"{term.red(f'None used')}\n"
 
@@ -703,47 +867,29 @@ class GUI(Thread, Drawable):
                 get_connectivity_string(connectivity.layer_4, connectivity.layer_7),
             ]
             table.add_row(row)
-        elif target.is_layer_4:
-            for i, layer_4 in enumerate(connectivity.layer_4_proxied):
-                # TODO: display proxy address
-                proxy_string = f"Proxy {i + 1}"
-                proxy_string = TextUtils.color(proxy_string, term.cyan)
-                row = [
-                    proxy_string,
-                    get_connectivity_string_l4(layer_4)
-                ]
-                table.add_row(row)
-        elif target.is_layer_7:
-            for i, layer_7 in enumerate(connectivity.layer_7_proxied):
-                # TODO: display proxy address
-                proxy_string = f"Proxy {i + 1}"
-                proxy_string = TextUtils.color(proxy_string, term.cyan)
-                row = [
-                    proxy_string,
-                    get_connectivity_string_l7(layer_7)
-                ]
-                table.add_row(row)
-
-    # @staticmethod
-    # def color_table_header(table: PrettyTable,
-    #                        table_string: str,
-    #                        color: Callable[[str], str] = term.black_on_orange) -> str:
-    #     split = table_string.split("\n")
-    #     header_height = len(table_string.split(table.left_junction_char)[0].split("\n"))
-    #     for i in range(1, header_height - 1):
-    #         header_split = split[i]
-    #         columns_split = header_split[1:-1].split(table.vertical_char)
-    #         new_row = ""
-    #         colored_vertical_char = color(table.vertical_char)
-    #         new_row += colored_vertical_char
-    #         for j in range(len(columns_split)):
-    #             columns_split[j] = color(columns_split[j])
-    #         new_row += colored_vertical_char.join(columns_split)
-    #         new_row += colored_vertical_char
-    #         split[i] = new_row
-    #     table_string = "\n".join(split)
-    #
-    #     return table_string
+        else:
+            n_connectivities = max(connectivity.total_proxies_count, 1)
+            start_index, stop_index = Pagination.get_page_bounds(self._connectivity_page_index, self.CONNECTIVITIES_PER_PAGE, n_connectivities)
+            if target.is_layer_4:
+                for i, layer_4 in enumerate(connectivity.layer_4_proxied[start_index:stop_index]):
+                    # TODO: display proxy address
+                    proxy_string = f"Proxy {i + 1}"
+                    proxy_string = TextUtils.color(proxy_string, term.cyan)
+                    row = [
+                        proxy_string,
+                        get_connectivity_string_l4(layer_4)
+                    ]
+                    table.add_row(row)
+            if target.is_layer_7:
+                for i, layer_7 in enumerate(connectivity.layer_7_proxied[start_index:stop_index]):
+                    # TODO: display proxy address
+                    proxy_string = f"Proxy {i + 1}"
+                    proxy_string = TextUtils.color(proxy_string, term.cyan)
+                    row = [
+                        proxy_string,
+                        get_connectivity_string_l7(layer_7)
+                    ]
+                    table.add_row(row)
 
     @staticmethod
     def _color_table_row(row_index: int,
