@@ -70,3 +70,5 @@ if __name__ == '__main__':
     logging_queue = initialize_logging(args.no_gui)
 
     velyka_kara()
+
+    input("Execution finished.\nPress ENTER to exit... ")
