@@ -8,6 +8,8 @@ from yarl import URL
 
 from MHDDoS.methods.tools import Tools
 
+from utils.network import NetworkUtils
+
 L4_PROTOCOLS = ["tcp", "udp", "dns"]
 L7_PROTOCOLS = ["ssh", "https", "http", "smtp"]
 
@@ -70,7 +72,7 @@ class Target:
             address += "/"
             self.url = URL(address)
             # if address is URL, find the associated IP
-            self.ip = Tools.get_ip(self.url.host)
+            self.ip = NetworkUtils.resolve_ip(self.url.host)
 
         # save protocol
         self.protocol = protocol
