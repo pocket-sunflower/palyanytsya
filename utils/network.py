@@ -10,6 +10,8 @@ from dns.resolver import Resolver
 from requests import get, RequestException, ConnectionError
 from yarl import URL
 
+from MHDDoS.methods.tools import Tools
+
 
 class NetworkUtils:
     """Useful functions for working with IPs and domains."""
@@ -70,9 +72,11 @@ class NetworkUtils:
         Returns:
             Domain's IP or list of IPs (depending on 'return_all_ips' argument's value).
         """
+        if validators.ipv4(domain):
+            return [domain] if return_all_ips else domain
+
+        domain = Tools.ensure_http_present(domain)
         host = URL(domain).host
-        if validators.ipv4(host):
-            return [host] if return_all_ips else host
 
         answer = NetworkUtils.DNS_RESOLVER.resolve(host)
         all_ips = [x.to_text() for x in answer]
