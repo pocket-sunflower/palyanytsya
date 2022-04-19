@@ -217,7 +217,7 @@ def kara():
             address = f"https://{address_no_protocol}"
 
     # Parse attack method
-    default_method = "UDP"
+    default_method = "TCP"
     method = default_method
     if not ask_for_input:
         if len(argv) < 4:
