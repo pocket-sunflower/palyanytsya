@@ -43,7 +43,7 @@ def read_configuration_file_text(file_path_or_url: str) -> str | None:
 def read_configuration_file_lines(file_path_or_url: str, include_unique_only: bool = True) -> List[str]:
     """
     Reads lines from the provided local file or URL.
-    Exits the program if the file is empty or could not be read.
+    Raises exception if the file is empty or could not be read.
 
     Args:
         file_path_or_url: Absolute path, relative path or URL of the file.
@@ -54,10 +54,11 @@ def read_configuration_file_lines(file_path_or_url: str, include_unique_only: bo
     """
 
     file_text = read_configuration_file_text(file_path_or_url)
+
     if file_text is None:
-        exit(f"Requested configuration file doesn't exist ('{file_path_or_url}').")
+        raise FileNotFoundError(f"Requested configuration file doesn't exist ('{file_path_or_url}').")
     if not file_text:
-        exit(f"Requested configuration file is empty ('{file_path_or_url}').")
+        raise Exception(f"Requested configuration file is empty ('{file_path_or_url}').")
 
     lines = [s.strip() for s in file_text.split("\n")]
 

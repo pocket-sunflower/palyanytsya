@@ -1,36 +1,18 @@
+import multiprocessing
+import sys
 import time
 from multiprocessing import Queue
 
 import colorama
 from humanfriendly.terminal import *
 
-from utils.gui import GUI
+
+from utils.gui import GUI, get_flair_string
 from utils.input_args import parse_command_line_args
-from utils.logs import logger
-from utils.misc import print_vpn_warning, supports_complex_colors
+from utils.logs import get_logger_for_current_process, initialize_logging
 from utils.supervisor import AttackSupervisor
 
-
-def get_flair_string():
-    BLUE = (0, 91, 187) if supports_complex_colors() else "blue"
-    YELLOW = (255, 213, 0) if supports_complex_colors() else "yellow"
-    GREEN = (8, 255, 8) if supports_complex_colors() else "green"
-    RED = (255, 0, 0) if supports_complex_colors() else "red"
-
-    heart = ansi_wrap("♥", color=RED)
-
-    flair_string = "\n" + \
-                   "A heavy-duty freedom-infused MHDDoS wrapper...\n" + \
-                   "\n" + \
-                   ansi_wrap("██████╗░░█████╗░██╗░░░░░██╗░░░██╗░█████╗░███╗░░██╗██╗░░░██╗████████╗░██████╗██╗░░░██╗░█████╗░\n", color=BLUE) + \
-                   ansi_wrap("██╔══██╗██╔══██╗██║░░░░░╚██╗░██╔╝██╔══██╗████╗░██║╚██╗░██╔╝╚══██╔══╝██╔════╝╚██╗░██╔╝██╔══██╗\n", color=BLUE) + \
-                   ansi_wrap("██████╔╝███████║██║░░░░░░╚████╔╝░███████║██╔██╗██║░╚████╔╝░░░░██║░░░╚█████╗░░╚████╔╝░███████║\n", color=BLUE) + \
-                   ansi_wrap("██╔═══╝░██╔══██║██║░░░░░░░╚██╔╝░░██╔══██║██║╚████║░░╚██╔╝░░░░░██║░░░░╚═══██╗░░╚██╔╝░░██╔══██║\n", color=YELLOW) + \
-                   ansi_wrap("██║░░░░░██║░░██║███████╗░░░██║░░░██║░░██║██║░╚███║░░░██║░░░░░░██║░░░██████╔╝░░░██║░░░██║░░██║\n", color=YELLOW) + \
-                   ansi_wrap("╚═╝░░░░░╚═╝░░╚═╝╚══════╝░░░╚═╝░░░╚═╝░░╚═╝╚═╝░░╚══╝░░░╚═╝░░░░░░╚═╝░░░╚═════╝░░░░╚═╝░░░╚═╝░░╚═╝\n", color=YELLOW) + \
-                   "\n" + \
-                   f"                                                                  ...from Ukraine with love {heart}\n"
-    return flair_string
+logger = None
 
 
 def print_flair():
@@ -40,30 +22,53 @@ def print_flair():
 
 def velyka_kara():
     print_flair()
-    print_vpn_warning()
+    # print_vpn_warning()
 
-    args = parse_command_line_args()
+    # time.sleep(1)
+    global logger
+    logger = get_logger_for_current_process(logging_queue, "PALYANYTSYA")
 
     attacks_state_queue = Queue()
     supervisor_state_queue = Queue()
+    supervisor_thread = AttackSupervisor(args, attacks_state_queue, supervisor_state_queue, logging_queue)
+    supervisor_thread.start()
 
-    AttackSupervisor(args, attacks_state_queue, supervisor_state_queue).start()
-    # GUI(args, attacks_state_queue, supervisor_state_queue).start()
+    gui_thread = None
+    if not args.no_gui:
+        gui_thread = GUI(args, attacks_state_queue, supervisor_state_queue, logging_queue)
+        gui_thread.start()
 
-    while True:
-        time.sleep(1)
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print(flush=True)
+        pass
+    except SystemExit:
+        pass
+    finally:
+        logger.info("Exiting...")
+
+        if supervisor_thread:
+            logger.info("Stopping supervisor...")
+            supervisor_thread.stop()
+            supervisor_thread.join()
+        if gui_thread:
+            logger.info("Stopping GUI...")
+            gui_thread.stop()
+            gui_thread.join()
+
+        logger.info("Exited.")
+        logging_queue.put(None)
+        time.sleep(0.5)
 
 
 if __name__ == '__main__':
-    colorama.init()
+    multiprocessing.set_start_method("spawn", force=True)  # required for Windows support
 
-    try:
-        velyka_kara()
-    except KeyboardInterrupt:
-        print("\nExecution aborted (Ctrl+C).\n")
-    except SystemExit:
-        pass
+    args = parse_command_line_args()
+    logging_queue = initialize_logging(args.no_gui)
 
-    colorama.deinit()
+    velyka_kara()
 
-    input("\nExecution finished.\nPress ENTER to exit... ")
+    input("Execution finished.\nPress ENTER to exit... ")

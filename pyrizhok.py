@@ -8,7 +8,7 @@ from humanfriendly.terminal import ansi_wrap
 
 from MHDDoS.methods.methods import Methods
 from MHDDoS.start import start, Tools
-from utils import print_vpn_warning, supports_complex_colors
+from utils.misc import print_vpn_warning, supports_complex_colors
 
 
 def get_flair_string():
@@ -243,7 +243,7 @@ def kara():
         argv.insert(2, address)
         argv.insert(3, "5")
         argv.insert(4, f"{hardcoded_n_threads}")
-        argv.insert(5, "socks5.txt")
+        argv.insert(5, "proxies.txt")
         argv.insert(6, f"{hardcoded_n_requests}")
         argv.insert(7, "44640")  # keep bombarding for a month!
 

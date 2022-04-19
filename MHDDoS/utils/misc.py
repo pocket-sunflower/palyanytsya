@@ -3,7 +3,8 @@ Miscellaneous utilities used by MHDDoS.
 """
 
 import ctypes
-from multiprocessing import RawValue, Lock, Queue
+from multiprocessing import Queue, Lock
+from multiprocessing.sharedctypes import RawValue
 from queue import Empty
 from typing import Any
 
@@ -31,17 +32,18 @@ class Counter(object):
         return self
 
 
-def get_last_from_queue(queue: Queue) -> Any | None:
+def get_last_from_queue(queue: Queue, default_value: Any = None) -> Any | None:
     """
     Drains the queue and returns the last item put into it.
 
     Args:
         queue: Queue to get the item from.
+        default_value: If this value is provided and the queue is empty, this value will be returned.
 
     Returns:
         Last item if the queue was not empty, None otherwise.
     """
-    result = None
+    result = default_value
     try:
         while True:
             result = queue.get_nowait()

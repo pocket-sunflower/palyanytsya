@@ -11,9 +11,12 @@ class Arguments(BaseModel):
     config: str = Field(default=None)
     config_fetch_interval: float = Field(default=600)
     attack_methods: List[str] = Field(default=[])
+    requests_per_connection: int = 100
     proxies: str = Field(default=None)
     proxies_validation_timeout: float = Field(default=3)
     proxies_fetch_interval: float = Field(default=600)
+    no_gui: bool = Field(default=False)
+    ignore_geolocation_change: bool = Field(default=False)
 
 
 def parse_command_line_args() -> Arguments:
@@ -86,8 +89,15 @@ def parse_command_line_args() -> Arguments:
         nargs="+",
         type=str.upper,
         default=["TCP", "GET", "POST", "STRESS"],
-        choices=Methods.LAYER7_METHODS,
+        choices=Methods.ALL_METHODS,
         help="List of MHDDoS attack methods to use. Default is TCP + GET + POST + STRESS",
+    )
+    parser.add_argument(
+        "-r",
+        "--requests-per-connection",
+        type=int,
+        default=100,
+        help="Number of requests per single connection when running a Layer 7 attack",
     )
     parser.add_argument(
         "-p",
@@ -105,6 +115,19 @@ def parse_command_line_args() -> Arguments:
         type=float,
         default=600,
         help="How often to fetch the proxies (in seconds) (default is 600)",
+    )
+    parser.add_argument(
+        "--no-gui",
+        action="store_true",
+        default=False,
+        help="Disable the GUI and display live logs from all processes instead",
+    )
+    parser.add_argument(
+        "-g",
+        "--ignore-geolocation-change",
+        action="store_true",
+        default=False,
+        help="Do not pause current attacks if the local machine's IP geolocation changes (for example, when VPN disconnects)",
     )
     # parser.add_argument(
     #     "--itarmy",

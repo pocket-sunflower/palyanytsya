@@ -1,3 +1,4 @@
+import math
 import os
 import socket
 import sys
@@ -6,7 +7,7 @@ import time
 from humanfriendly.terminal import ansi_wrap
 from requests import get
 
-from MHDDoS.start import Tools
+from MHDDoS.methods.tools import Tools
 
 
 class TimeInterval:
@@ -27,6 +28,11 @@ class TimeInterval:
 
     def reset(self) -> None:
         self._last_interval_timestamp = float("-inf")
+
+    @property
+    def time_left(self) -> float:
+        time_since_last = time.perf_counter() - self._last_interval_timestamp
+        return max(0., self.interval - time_since_last)
 
 
 def supports_complex_colors():

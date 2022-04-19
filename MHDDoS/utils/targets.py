@@ -1,15 +1,21 @@
 from __future__ import annotations
 
 import re
+import time
 
 import validators
 from yarl import URL
 
 from MHDDoS.methods.tools import Tools
 
+from utils.network import NetworkUtils
+
+L4_PROTOCOLS = ["tcp", "udp", "dns"]
+L7_PROTOCOLS = ["ssh", "https", "http", "smtp"]
+
 REGEX_FLAGS = re.RegexFlag.UNICODE | re.RegexFlag.IGNORECASE
 
-REGEX_PROTOCOL = r"(?:tcp|udp|ssh|dns|https|http|smtp)"
+REGEX_PROTOCOL = rf"(?:{'|'.join(L4_PROTOCOLS + L7_PROTOCOLS)})"
 REGEX_DOMAIN_URL = r"(?:[a-zA-Z0-9\-]+)(?:\.[a-zA-Z0-9\-]+)*(?:\.[a-zA-Z\-][a-zA-Z0-9\-]+)[/]?"
 REGEX_IP = r"(?:(?:(?:2[5][0-5]|2[0-4][0-9]|1[0-9]{2}|[0-9]{1,2})\.(?:2[5][0-5]|2[0-4][0-9]|1[0-9]{2}|[0-9]{1,2})\." \
            r"(?:2[5][0-5]|2[0-4][0-9]|1[0-9]{2}|[0-9]{1,2})\.(?:2[5][0-5]|2[0-4][0-9]|1[0-9]{2}|[0-9]{1,2}))){1}"
@@ -28,7 +34,6 @@ DEFAULT_L4_PROTOCOL = "tcp"
 DEFAULT_L7_PROTOCOL = "https"
 
 
-# TODO: add protocol data to target (attack method can be derived based on that)
 class Target:
     """
     Utility class representing an attack target.
@@ -44,9 +49,8 @@ class Target:
                  protocol: str = None):
         # handle port
         if port is None:
-            self.port = DEFAULT_PORT
-        else:
-            self.port = port
+            port = DEFAULT_PORT
+        self.port = port
 
         # handle address
         address.removesuffix("/")
@@ -62,11 +66,13 @@ class Target:
             # ensure protocol in URL
             address = Tools.ensure_http_present(address)
             # ensure port in URL
-            if len(address.split(":")) == 1:
+            address.removesuffix("/")
+            if len(address.split(":")) >= 1:
                 address = f"{address}:{port}"
+            address += "/"
             self.url = URL(address)
             # if address is URL, find the associated IP
-            self.ip = Tools.get_ip(self.url.host)
+            self.ip = NetworkUtils.resolve_ip(self.url.host)
 
         # save protocol
         self.protocol = protocol
@@ -74,7 +80,8 @@ class Target:
     def __str__(self):
         string = ""
         if self.url is not None:
-            string += f"{self.url}"
+            url = self.url
+            string += f"{url.scheme}://{url.host}:{url.port}{url.path}"
         elif self.ip is not None:
             if self.protocol is not None:
                 string += f"{self.protocol}://"
@@ -89,6 +96,7 @@ class Target:
             return
         return self.ip == other.ip and self.url == other.url and self.port == self.port
 
+    @property
     def is_valid(self) -> bool:
         """
         A valid target will have a valid IP, and (optionally) a URL.
@@ -101,6 +109,16 @@ class Target:
             return False
 
         return True
+
+    @property
+    def is_layer_7(self) -> bool:
+        """Checks if the target uses Layer 7 protocol."""
+        return self.is_valid and (self.protocol in L7_PROTOCOLS)
+
+    @property
+    def is_layer_4(self) -> bool:
+        """Checks if the target uses Layer 4 protocol."""
+        return self.is_valid and (self.protocol in L4_PROTOCOLS)
 
     @staticmethod
     def parse_from_string(string: str) -> Target | None:
@@ -121,7 +139,7 @@ class Target:
         # we have data for a target; create it and populate with what we can find
         target_match = target_matches[0]
 
-        # parse ip using regex
+        # parse protocol using regex
         protocol_matches = REGEX_PROTOCOL.findall(target_match)
         protocol = None
         if len(protocol_matches) > 0:
