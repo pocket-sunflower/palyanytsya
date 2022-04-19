@@ -101,7 +101,7 @@ def initialize_logging(no_gui: bool = True) -> Queue:
         stream_handler,
     ]
 
-    # this collect logs from all process loggers created by get_logger_for_current_process()
+    # this collects logs from all process loggers created by get_logger_for_current_process()
     queue_listener = QueueListener(
         logging_queue,
         *handlers,

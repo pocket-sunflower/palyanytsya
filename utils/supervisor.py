@@ -1,34 +1,51 @@
+from __future__ import annotations
+
 import threading
 import time
 from dataclasses import dataclass, field
 from multiprocessing import Queue, Process
 from queue import Empty
 from threading import Thread
-from typing import List, Dict
+from typing import List, Dict, Callable, Any
 
 import psutil
-from PyRoxy import Proxy
 
 from MHDDoS.attack import Attack, AttackState
+from MHDDoS.methods.tools import Tools
 from MHDDoS.utils.config_files import read_configuration_file_lines
 from MHDDoS.utils.proxies import load_proxies
 from MHDDoS.utils.targets import Target
 from utils.input_args import Arguments
 from utils.logs import get_logger_for_current_process
 from utils.misc import TimeInterval
+from utils.network import IPGeolocationData
 
 
 @dataclass(slots=True, order=True, frozen=True)
 class AttackSupervisorState:
-    is_fetching_configuration: bool
+    is_fetching_targets: bool
     is_fetching_proxies: bool
-    proxies_count: int
-    attack_processes_count: int
+    is_fetching_geolocation: bool
 
     attack_states: List[AttackState]
+    targets_addresses: List[str]
     proxies_addresses: List[str]
 
+    local_ip_geolocation: IPGeolocationData
+
     timestamp: float = field(default_factory=time.time)
+
+    @property
+    def attack_processes_count(self) -> int:
+        return len(self.attack_states) if (self.attack_states is not None) else 0
+
+    @property
+    def proxies_count(self) -> int:
+        return len(self.proxies_addresses) if (self.proxies_addresses is not None) else 0
+
+    @property
+    def targets_count(self) -> int:
+        return len(self.targets_addresses) if (self.targets_addresses is not None) else 0
 
     def __eq__(self, other):
         if not isinstance(other, AttackSupervisorState):
@@ -52,12 +69,16 @@ class AttackSupervisor(Thread):
 
     _targets_fetch_interval: TimeInterval
     _proxies_fetch_interval: TimeInterval
+    _geolocation_fetch_interval: TimeInterval
 
     _internal_loop_sleep_interval: float = 0.01
     _state_publish_interval: float = 0.5
 
     _is_fetching_proxies: bool = False
     _is_fetching_targets: bool = False
+    _is_fetching_geolocation: bool = False
+
+    _last_geolocation: IPGeolocationData = None
 
     def __init__(self,
                  args: Arguments,
@@ -75,6 +96,7 @@ class AttackSupervisor(Thread):
 
         self._targets_fetch_interval = TimeInterval(args.config_fetch_interval)
         self._proxies_fetch_interval = TimeInterval(args.proxies_fetch_interval)
+        self._geolocation_fetch_interval = TimeInterval(20)
 
         stop_event = threading.Event()
         stop_event.clear()
@@ -92,11 +114,20 @@ class AttackSupervisor(Thread):
 
             targets_changed = False
             if self._targets_fetch_interval.check_if_has_passed():
+                self._is_fetching_targets = True
                 targets_changed = self._fetch_targets()
+                self._is_fetching_targets = False
 
             proxies_changed = False
             if self._proxies_fetch_interval.check_if_has_passed():
+                self._is_fetching_proxies = True
                 proxies_changed = self._fetch_proxies()
+                self._is_fetching_proxies = False
+
+            if self._geolocation_fetch_interval.check_if_has_passed():
+                self._is_fetching_geolocation = True
+                self._check_geolocation()
+                self._is_fetching_geolocation = False
 
             if targets_changed or proxies_changed:
                 self._restart_attacks()
@@ -124,7 +155,6 @@ class AttackSupervisor(Thread):
         """
         logger = self.logger
 
-        self._is_fetching_targets = True
         logger.info("Fetching targets...")
 
         config = self._args.config
@@ -149,12 +179,10 @@ class AttackSupervisor(Thread):
         # check if the targets changed
         if self._compare_lists(new_targets_strings, self._targets):
             logger.info("Targets have not changed.")
-            self._is_fetching_targets = False
             return False
 
         self._targets = new_targets
         logger.info(f"Targets updated. Attack processes will be re-initialized for {len(new_targets)} loaded targets.")
-        self._is_fetching_targets = False
         return True
 
     def _fetch_proxies(self) -> bool:
@@ -170,26 +198,57 @@ class AttackSupervisor(Thread):
         if proxies_file_path is None:
             return False
 
-        self._is_fetching_proxies = True
         logger.info("Fetching proxies...")
 
         new_proxies = load_proxies(proxies_file_path)
         if new_proxies is None:
             logger.error(f"Could not load any proxies from the given path: '{proxies_file_path}'")
-            self._is_fetching_proxies = False
             return False
 
         # check if the proxies changed (we compare the addresses because Proxy objects do not have __eq__ method defined)
         new_proxies_addresses = [f"{p}" for p in new_proxies]
         if self._compare_lists(new_proxies_addresses, self._proxies_addresses):
             logger.info("Proxies have not changed.")
-            self._is_fetching_proxies = False
             return False
 
         self._proxies_addresses = new_proxies_addresses
         logger.info(f"Proxies updated. Attack processes will be re-initialized for {len(new_proxies_addresses)} loaded proxies.")
-        self._is_fetching_proxies = False
         return True
+
+    def _check_geolocation(self) -> None:
+        """
+        Checks local machine's IP geolocation and stops the attacks if it changed since the previous check.
+        """
+        logger = self.logger
+
+        try:
+            new_geolocation = IPGeolocationData.get_for_my_ip(5)
+        except ConnectionError:
+            logger.error(f"Failed to get geolocation data for the local IP (ConnectionError). Will retry in {self._geolocation_fetch_interval.time_left:.0f} seconds.")
+            return
+
+        geolocation_changed = new_geolocation != self._last_geolocation
+
+        if geolocation_changed and not self._args.ignore_geolocation_change:
+            # stop running attacks, if any
+            if self.running_attacks_count > 0:
+                logger.warning(f"Geolocation of the local machine's IP has changed!"
+                               f"   {self._last_geolocation} -> {new_geolocation}\n"
+                               f"   {self.running_attacks_count} running attack processes will be stopped.")
+                self._stop_all_attacks()
+
+            # wait for confirmation from the user to continue
+            # TODO: add arg to disable this check entirely?
+            if self._args.no_gui:
+                input(f"Geolocation of the local machine's IP has changed: {self._last_geolocation} -> {new_geolocation}.\n"
+                      f"Press any key to restart the attacks, or Ctrl+C to exit.")
+            else:
+                # TODO: warn the user if geolocation has changed and stop the attacks
+                pass
+
+        self._last_geolocation = new_geolocation
+
+        logger.info(f"Checked geolocation: {new_geolocation}")
 
     def _stop_all_attacks(self, blocking: bool = False) -> None:
         # kill all existing attack processes
@@ -259,11 +318,12 @@ class AttackSupervisor(Thread):
             sorted_attack_states = [self._attack_states[k] for k in sorted(self._attack_states.keys())]
             state = AttackSupervisorState(
                 is_fetching_proxies=self._is_fetching_proxies,
-                is_fetching_configuration=self._is_fetching_targets,
-                proxies_count=len(self._proxies_addresses),
-                attack_processes_count=len(self._attack_processes),
+                is_fetching_targets=self._is_fetching_targets,
+                is_fetching_geolocation=self._is_fetching_geolocation,
                 attack_states=sorted_attack_states,
-                proxies_addresses=self._proxies_addresses
+                proxies_addresses=self._proxies_addresses,
+                local_ip_geolocation=self._last_geolocation,
+                targets_addresses=[f"{t}" for t in self._targets]
             )
             self._supervisor_state_queue.put(state)
 
@@ -285,3 +345,8 @@ class AttackSupervisor(Thread):
         list_a.sort()
         list_b.sort()
         return list_a == list_b
+
+    @property
+    def running_attacks_count(self) -> int:
+        alive_processes = [p for p in self._attack_processes if p.is_alive()]
+        return len(alive_processes)

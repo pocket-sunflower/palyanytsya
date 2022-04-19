@@ -103,7 +103,7 @@ class TextUtils:
         # text = TextUtils.pad_to_box(text, text_h, text_w)
         # return "\n".join([term.center(line, width) for line in text.split("\n")])
 
-        text = TextUtils.pad_to_itself(text)
+        # text = TextUtils.pad_to_itself(text)
         return TextUtils._justify_internal(text, width, fillchar, TextUtils.Justify.CENTER)
 
     @staticmethod

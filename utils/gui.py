@@ -41,6 +41,8 @@ color_ua_blue = term.blue
 color_ua_yellow = term.gold
 color_selection = term.black_on_white
 color_navigation_keys = term.black_on_yellow
+color_status_bar = term.black_on_gold
+color_nav_bar = None
 
 
 def get_flair_string(t: Terminal = None):
@@ -129,11 +131,18 @@ class GUI(Thread, Drawable):
     SUPERVISOR_HEIGHT = 1
     FLAIR_HEIGHT = 12
     MAX_GUI_WIDTH = 300
-    ATTACKS_PER_PAGE = 5
+
+    MENU_TABS_HEIGHT = 3
+    NAV_TIPS_BAR_HEIGHT = 1
+    STATUS_BAR_HEIGHT = 2
+
     ATTACKS_TABLE_HEADER_HEIGHT = 5
     ATTACKS_TABLE_ROW_HEIGHT = 3
+
     CONNECTIVITIES_TABLE_HEADER_HEIGHT = 3
     CONNECTIVITIES_TABLE_ROW_HEIGHT = 4
+
+    ATTACKS_PER_PAGE = 5
     CONNECTIVITIES_PER_PAGE = 4
 
     _table = PrettyTable(
@@ -189,32 +198,35 @@ class GUI(Thread, Drawable):
         flair_window.max_height = self.FLAIR_HEIGHT
         all_gui_elements.append(flair_window)
 
-        supervisor_window = Window(
+        status_bar_interval = TimeInterval(0.1)
+        status_bar_window = Window(
             term,
-            content_update_callback=self._draw_supervisor,
-            change_callback=lambda: self._last_supervisor_update_time
+            content_update_callback=self._draw_status_bar,
+            change_callback=lambda: status_bar_interval.check_if_has_passed()
         )
-        supervisor_window.max_height = self.SUPERVISOR_HEIGHT
-        all_gui_elements.append(supervisor_window)
+        status_bar_window.max_height = self.STATUS_BAR_HEIGHT
+        status_bar_window.background_color = color_status_bar
+        all_gui_elements.append(status_bar_window)
 
-        header_window = Window(
+        menu_tabs_window = Window(
             term,
-            content_update_callback=self._draw_header,
+            content_update_callback=self._draw_menu_tabs,
             change_callback=lambda: (
                 self._is_in_target_status_view,
                 self._last_supervisor_update_time,
                 self._selected_attack_index
             )
         )
-        header_window.max_height = 3
-        all_gui_elements.append(header_window)
+        menu_tabs_window.max_height = self.MENU_TABS_HEIGHT
+        all_gui_elements.append(menu_tabs_window)
 
         attacks_window = Window(
             term,
             content_update_callback=self._draw_attacks,
             change_callback=lambda: (
                 self._last_supervisor_update_time,
-                self._selected_attack_index
+                self._selected_attack_index,
+                self._is_in_attacks_view
             )
         )
         attacks_window.max_height = self.ATTACKS_TABLE_HEADER_HEIGHT + self.ATTACKS_TABLE_ROW_HEIGHT * self.ATTACKS_PER_PAGE
@@ -241,7 +253,8 @@ class GUI(Thread, Drawable):
             content_update_callback=self._draw_target_status,
             change_callback=lambda: (
                 self._last_supervisor_update_time,
-                self._selected_attack_index
+                self._selected_attack_index,
+                self._is_in_target_status_view
             )
         )
         target_status_window.max_height = self.ATTACKS_TABLE_HEADER_HEIGHT + self.ATTACKS_TABLE_ROW_HEIGHT
@@ -251,7 +264,8 @@ class GUI(Thread, Drawable):
             change_callback=lambda: (
                 self._last_supervisor_update_time,
                 self._selected_attack_index,
-                self._connectivity_page_index
+                self._connectivity_page_index,
+                self._is_in_target_status_view
             )
         )
         connectivity_window.max_height = self.CONNECTIVITIES_TABLE_HEADER_HEIGHT + self.CONNECTIVITIES_TABLE_ROW_HEIGHT * self.CONNECTIVITIES_PER_PAGE
@@ -279,9 +293,15 @@ class GUI(Thread, Drawable):
         nav_tips_window = Window(
             term,
             content_update_callback=self._draw_nav_tips,
-            change_callback=lambda: self._is_in_target_status_view
+            change_callback=lambda: (
+                self._is_in_target_status_view,
+                self._is_supervisor_loaded,
+                self._is_attacks_info_available,
+                self._selected_attack_index
+            )
         )
-        nav_tips_window.max_height = 1
+        nav_tips_window.max_height = self.NAV_TIPS_BAR_HEIGHT
+        nav_tips_window.background_color = color_nav_bar
         all_gui_elements.append(nav_tips_window)
 
         self._gui_stack = DrawableRectStack(
@@ -313,14 +333,13 @@ class GUI(Thread, Drawable):
             print_no_newline(color_exception(" Exception in GUI thread: \n\n"))
             trace = traceback.format_exc()
             print_no_newline(color_bad(trace))
-            raise SystemExit
         except (KeyboardInterrupt, SystemExit) as e:
-            # raise e
             pass
         finally:
             # print_and_flush("\n")
             # self._keyboard_listener.stop()
             self.logger.info("GUI thread exited.")
+            raise SystemExit
 
     def stop(self):
         self._stop_event.set()
@@ -447,7 +466,7 @@ class GUI(Thread, Drawable):
         if supervisor is None:
             s += "Initializing..."
         else:
-            if supervisor.is_fetching_configuration:
+            if supervisor.is_fetching_targets:
                 s += "Fetching targets configuration..."
             elif supervisor.is_fetching_proxies:
                 s += "Fetching proxies configuration..."
@@ -459,7 +478,7 @@ class GUI(Thread, Drawable):
         s = term.black_on_gold(s)
         window.set_content(s)
 
-    def _draw_header(self, window: Window):
+    def _draw_menu_tabs(self, window: Window):
         window.clear_content()
 
         # OVERVIEW HEADER
@@ -632,16 +651,105 @@ class GUI(Thread, Drawable):
 
         s = f"Navigation: "
 
+        actions = []
         if self._is_in_attacks_view:
-            s += f"{down} = select next attack, {up} = select previous attack, {right} = show attack details"
+            if self._is_supervisor_loaded:
+                if self._supervisor_state.attack_processes_count > 1:
+                    actions.append(f"{down} = select next attack")
+                    actions.append(f"{up} = select previous attack")
+            if self._is_attacks_info_available:
+                selected_attack_number = self._selected_attack_index + 1
+                actions.append(f"{right} = show details for attack {selected_attack_number}")
+
         elif self._is_in_target_status_view:
-            s += f"{down} = next connectivity page, {up} = previous connectivity page, "
-            s += f"{left} = go back to attacks menu"
+            if self._is_attacks_info_available:
+                selected_attack = self._supervisor_state.attack_states[self._selected_attack_index]
+                if selected_attack.connectivity_state is not None:
+                    connectivities_count = selected_attack.connectivity_state.total_states
+                    if connectivities_count > self.CONNECTIVITIES_PER_PAGE:
+                        actions.append(f"{down} = next connectivity page")
+                        actions.append(f"{up} = previous connectivity page")
+            actions.append(f"{left} = go back to attacks menu")
+
+        if len(actions) == 0:
+            window.clear_content()
+            return
+
+        s += ", ".join(actions)
 
         s = f" {s} "
 
         window.set_content(s)
         window.center_content()
+
+    def _draw_status_bar(self, window: Window):
+        window.clear_content()
+
+        status_strings = []
+
+        if not self._is_supervisor_loaded:
+            status_string = "Waiting for supervisor to load..."
+            window.set_content(status_string)
+            window.center_content()
+            return
+
+        # LOCAL IP INFO
+        local_ip_geolocation = self._supervisor_state.local_ip_geolocation
+        if local_ip_geolocation is None:
+            ip_info = "Public IP: Checking..."
+        else:
+            ip_info = f"Public IP: {local_ip_geolocation}"
+
+        if self._supervisor_state.is_fetching_geolocation:
+            ip_info += ""
+
+        window.add_content(ip_info)
+
+        # TARGETS INFO
+        n_targets = self._supervisor_state.targets_count
+        if n_targets == 1:
+            targets_info = f"1 target"
+        elif n_targets > 1:
+            targets_info = f"{n_targets} targets"
+        else:
+            targets_info = f"No targets"
+
+        if self._supervisor_state.is_fetching_targets:
+            targets_info += " (fetching)"
+
+        status_strings.append(targets_info)
+
+        # PROXIES INFO
+        n_proxies = self._supervisor_state.proxies_count
+        if n_proxies == 1:
+            proxies_info = f"1 proxy"
+        elif n_proxies > 1:
+            proxies_info = f"{n_proxies} proxies"
+        else:
+            proxies_info = f"No proxies"
+
+        if self._supervisor_state.is_fetching_proxies:
+            proxies_info += " (fetching)"
+
+        status_strings.append(proxies_info)
+
+        # ATTACKS INFO
+        n_attacks = self._supervisor_state.attack_processes_count
+        if n_attacks == 1:
+            attacks_info = f"1 attack process"
+        elif n_attacks > 1:
+            attacks_info = f"{n_attacks} attack processes"
+        else:
+            attacks_info = f"No attack processes"
+        status_strings.append(attacks_info)
+
+        status_string = "•".join([f" {s} " for s in status_strings])
+
+        window.add_content(status_string)
+
+        window.center_content()
+
+    # DRAWING HELPER METHODS
 
     @staticmethod
     def get_pagination_string(page_index: int, items_per_page: int, total_items: int) -> str:
@@ -661,7 +769,7 @@ class GUI(Thread, Drawable):
 
         return string
 
-    # ATTACKS TABLE METHODS
+    # ATTACKS VIEW METHODS
 
     def _add_header_to_attack_state_table(self, table: PrettyTable) -> None:
         attacks_table_columns = [
@@ -829,7 +937,7 @@ class GUI(Thread, Drawable):
 
         return term.white
 
-    # TARGET STATUS VIEW
+    # TARGET STATUS VIEW METHODS
 
     def _add_header_to_connectivity_table(self, table: PrettyTable, target: Target) -> None:
         layer_string = "Layer 4" if target.is_layer_4 else "Layer 7" if target.is_layer_7 else "[INVALID TARGET]"
@@ -1008,6 +1116,9 @@ class GUI(Thread, Drawable):
                     self._switch_to_target_status_view()
                 elif key.code == term.KEY_LEFT:
                     self._switch_to_attacks_view()
+                elif key.code == term.KEY_ENTER:
+                    # TODO: VPN prompt confirmation
+                    pass
 
     def _select_next_item(self):
         if self._is_in_attacks_view:

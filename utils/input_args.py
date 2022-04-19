@@ -16,6 +16,7 @@ class Arguments(BaseModel):
     proxies_validation_timeout: float = Field(default=3)
     proxies_fetch_interval: float = Field(default=600)
     no_gui: bool = Field(default=False)
+    ignore_geolocation_change: bool = Field(default=False)
 
 
 def parse_command_line_args() -> Arguments:
@@ -120,6 +121,13 @@ def parse_command_line_args() -> Arguments:
         action="store_true",
         default=False,
         help="Disable the GUI and display live logs from all processes instead",
+    )
+    parser.add_argument(
+        "-g",
+        "--ignore-geolocation-change",
+        action="store_true",
+        default=False,
+        help="Do not pause current attacks if the local machine's IP geolocation changes (for example, when VPN disconnects)",
     )
     # parser.add_argument(
     #     "--itarmy",

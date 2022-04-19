@@ -12,7 +12,7 @@ from time import sleep
 from typing import Any
 
 import PyRoxy
-from PyRoxy import Tools as PyRoxyTools
+import dns.resolver
 from dns import resolver
 from icmplib import ping
 from psutil import net_io_counters, virtual_memory, cpu_percent, process_iter
@@ -21,11 +21,24 @@ from requests import get, Response
 from MHDDoS.methods.methods import Methods
 
 logger = logging.getLogger()
-__ip__: Any = None
+
+dns_resolver = dns.resolver.Resolver(configure=False)
+dns_resolver.nameservers = [
+    "1.1.1.1", "1.0.0.1",  # Cloudflare
+    "8.8.8.8", "8.8.4.4",  # Google
+    "9.9.9.9", "149.112.112.112",  # Quad9
+    "208.67.222.222", "208.67.220.220",  # OpenDNS
+    "8.26.56.26", "8.20.247.20",  # Comodo Secure DNS
+    "185.228.168.9", "185.228.169.9",  # CleanBrowsing
+    "76.76.19.19", "76.223.122.150",  # Alternate DNS
+    "94.140.14.14", "94.140.15.15",  # AdGuard DNS
+]
 
 
 class Tools:
     METHODS = {"INFO", "TSSRV", "CFIP", "DNS", "PING", "CHECK", "DSTAT"}
+
+    __ip__: Any = None
 
     @staticmethod
     def checkRawSocket():
@@ -338,21 +351,20 @@ class Tools:
 
     @staticmethod
     def getMyIPAddress():
-        global __ip__
-        if __ip__:
-            return __ip__
+        if Tools.__ip__:
+            return Tools.__ip__
         with suppress(Exception):
-            __ip__ = get('https://api.my-ip.io/ip', timeout=.1).text
+            Tools.__ip__ = get('https://api.my-ip.io/ip', timeout=.1).text
         with suppress(Exception):
-            __ip__ = get('https://ipwhois.app/json/', timeout=.1).json()["ip"]
+            Tools.__ip__ = get('https://ipwhois.app/json/', timeout=.1).json()["ip"]
         with suppress(Exception):
-            __ip__ = get('https://ipinfo.io/json', timeout=.1).json()["ip"]
+            Tools.__ip__ = get('https://ipinfo.io/json', timeout=.1).json()["ip"]
         with suppress(Exception):
-            __ip__ = PyRoxy.Tools.Patterns.IP.search(get('http://checkip.dyndns.org/', timeout=.1).text)
+            Tools.__ip__ = PyRoxy.Tools.Patterns.IP.search(get('http://checkip.dyndns.org/', timeout=.1).text)
         with suppress(Exception):
-            __ip__ = PyRoxy.Tools.Patterns.IP.search(get('https://spaceiran.com/myip/', timeout=.1).text)
+            Tools.__ip__ = PyRoxy.Tools.Patterns.IP.search(get('https://spaceiran.com/myip/', timeout=.1).text)
         with suppress(Exception):
-            __ip__ = get('https://ip.42.pl/raw', timeout=.1).text
+            Tools.__ip__ = get('https://ip.42.pl/raw', timeout=.1).text
         return Tools.getMyIPAddress()
 
     @staticmethod
