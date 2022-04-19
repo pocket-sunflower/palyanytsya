@@ -7,8 +7,11 @@ COPY MHDDoS /app/MHDDoS/
 COPY requirements.txt /app/
 RUN pip install -r /app/requirements.txt
 
-COPY palyanytsya.py utils.py /app/
+COPY palyanytsya.py /app/
+COPY utils /app/utils
 COPY build_scripts_Docker/docker_entrypoint_palyanytsya.sh /app/
+
+RUN mkdir /app/logs
 
 WORKDIR /app
 

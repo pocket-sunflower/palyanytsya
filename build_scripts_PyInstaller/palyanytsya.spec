@@ -9,6 +9,7 @@ a = Analysis(['../palyanytsya.py'],
              datas=[
                 ('build_dependency_files/GeoLite2-Country.mmdb', 'PyRoxy/GeoIP/Sqlite'),
                 ('../MHDDoS', 'MHDDoS'),
+                ('../utils', 'utils'),
              ],
              hiddenimports=[],
              hookspath=[],
