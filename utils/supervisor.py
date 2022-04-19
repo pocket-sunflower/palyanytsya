@@ -6,12 +6,12 @@ from dataclasses import dataclass, field
 from multiprocessing import Queue, Process
 from queue import Empty
 from threading import Thread
-from typing import List, Dict, Callable, Any
+from typing import List, Dict
 
 import psutil
+import requests
 
 from MHDDoS.attack import Attack, AttackState
-from MHDDoS.methods.tools import Tools
 from MHDDoS.utils.config_files import read_configuration_file_lines
 from MHDDoS.utils.proxies import load_proxies
 from MHDDoS.utils.targets import Target
@@ -222,12 +222,12 @@ class AttackSupervisor(Thread):
         logger = self.logger
 
         try:
-            new_geolocation = IPGeolocationData.get_for_my_ip(5)
-        except ConnectionError:
+            new_geolocation = IPGeolocationData.get_for_my_ip(10)
+        except requests.ConnectionError:
             logger.error(f"Failed to get geolocation data for the local IP (ConnectionError). Will retry in {self._geolocation_fetch_interval.time_left:.0f} seconds.")
             return
 
-        geolocation_changed = new_geolocation != self._last_geolocation
+        geolocation_changed = (new_geolocation != self._last_geolocation) and (self._last_geolocation is not None)
 
         if geolocation_changed and not self._args.ignore_geolocation_change:
             # stop running attacks, if any

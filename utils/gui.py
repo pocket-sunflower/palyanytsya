@@ -121,7 +121,7 @@ class GUI(Thread, Drawable):
     # _nav_tips_window: Window
     _gui_stack: DrawableRectStack
 
-    _ui_drawing_time = 0
+    _last_ui_drawing_time = 0
 
     # INTERACTIONS
     _keyboard_listener: KeyboardListener
@@ -230,6 +230,7 @@ class GUI(Thread, Drawable):
             )
         )
         attacks_window.max_height = self.ATTACKS_TABLE_HEADER_HEIGHT + self.ATTACKS_TABLE_ROW_HEIGHT * self.ATTACKS_PER_PAGE
+
         attacks_pagination_window = Window(
             term,
             content_update_callback=self._draw_attacks_pagination,
@@ -258,6 +259,7 @@ class GUI(Thread, Drawable):
             )
         )
         target_status_window.max_height = self.ATTACKS_TABLE_HEADER_HEIGHT + self.ATTACKS_TABLE_ROW_HEIGHT
+
         connectivity_window = Window(
             term,
             content_update_callback=self._draw_target_connectivity,
@@ -269,6 +271,7 @@ class GUI(Thread, Drawable):
             )
         )
         connectivity_window.max_height = self.CONNECTIVITIES_TABLE_HEADER_HEIGHT + self.CONNECTIVITIES_TABLE_ROW_HEIGHT * self.CONNECTIVITIES_PER_PAGE
+
         connectivity_pagination_window = Window(
             term,
             content_update_callback=self._draw_target_connectivity_pagination,
@@ -304,6 +307,13 @@ class GUI(Thread, Drawable):
         nav_tips_window.background_color = color_nav_bar
         all_gui_elements.append(nav_tips_window)
 
+        debug_bar = Window(
+            term,
+            content_update_callback=self._draw_debug_bar
+        )
+        debug_bar.max_height = 1
+        all_gui_elements.append(debug_bar)
+
         self._gui_stack = DrawableRectStack(
             term,
             rects=all_gui_elements
@@ -318,18 +328,9 @@ class GUI(Thread, Drawable):
 
     def run(self):
         try:
-            with term.fullscreen(), term.cbreak(), term.hidden_cursor():
-                print_no_newline(term.home + term.clear)
-
-                while not self._stop_event.is_set():
-                    self._update_supervisor_state()
-
-                    with self._redraw_lock:
-                        self.redraw()
-
-                    time.sleep(self._update_interval)
+            self._run_internal()
         except Exception as e:
-            print_no_newline(term.clear)
+            # print_no_newline(term.clear)
             print_no_newline(color_exception(" Exception in GUI thread: \n\n"))
             trace = traceback.format_exc()
             print_no_newline(color_bad(trace))
@@ -340,6 +341,18 @@ class GUI(Thread, Drawable):
             # self._keyboard_listener.stop()
             self.logger.info("GUI thread exited.")
             raise SystemExit
+
+    def _run_internal(self):
+        with term.fullscreen(), term.cbreak(), term.hidden_cursor():
+            print_no_newline(term.home + term.clear)
+
+            while not self._stop_event.is_set():
+                self._update_supervisor_state()
+
+                with self._redraw_lock:
+                    self.redraw()
+
+                time.sleep(self._update_interval)
 
     def stop(self):
         self._stop_event.set()
@@ -394,21 +407,19 @@ class GUI(Thread, Drawable):
         self._redraw_child(self._gui_stack)
 
         drawing_time = time.perf_counter() - start
-        self._ui_drawing_time = max(drawing_time, 0.0001)
-        time_sting = f" GUI: {1 / self._ui_drawing_time:>6.1f} FPS "
-        time_sting = color_time_string(time_sting)
-        width = TextUtils.width(time_sting)
-        with term.location(term.width - width, term.height):
-            print_no_newline(TextUtils.justify_right(time_sting, width))
-
-        # if self._ui_update_interval.check_if_has_passed():
-
-        # with term.location(0, term.height):
-        #     print_and_flush(term.black_on_red(f" {self._is_in_target_status_view} "))
+        self._last_ui_drawing_time = drawing_time
 
         term.move_xy(term.width, term.height)
 
     # DRAWING CALLBACKS
+
+    def _draw_debug_bar(self, window: Window):
+        fps = 1 / max(self._last_ui_drawing_time, 0.0001)
+        time_string = f" GUI: {fps:>6.1f} FPS "
+        time_string = color_time_string(time_string)
+        time_string = TextUtils.justify_right(time_string, window.width)
+
+        window.set_content(time_string)
 
     def _draw_flair(self, window: Window):
         gradient = ["█", "▓", "▒", "░", " "]
