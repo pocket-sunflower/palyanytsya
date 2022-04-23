@@ -8,6 +8,7 @@ from humanfriendly.terminal import ansi_wrap
 from requests import get
 
 from MHDDoS.methods.tools import Tools
+from utils.network import NetworkUtils, IPGeolocationData
 
 
 class TimeInterval:
@@ -47,14 +48,13 @@ def supports_complex_colors():
 def print_vpn_warning():
     WARNING_YELLOW = (236, 232, 26) if supports_complex_colors() else "yellow"
 
-    local_ip = get('http://ip.42.pl/raw').text
-    ip_data = Tools.info(local_ip)
+    ip_data = IPGeolocationData.get_for_my_ip(timeout=5)
 
     print(ansi_wrap("!!! WARNING:\n"
                     f"   Please, MAKE SURE that you are using VPN.\n"
                     f"   Your current data is:\n"
-                    f"      IP: {ip_data['ip']}\n"
-                    f"      Country: {str.upper(ip_data['country'])}\n"
+                    f"      IP: {ip_data.ip}\n"
+                    f"      Country: {str.upper(ip_data.country)}\n"
                     f"   If the data above doesn't match your physical location, you can ignore this warning.\n"
                     f"   Stay safe! ♥\n", color=WARNING_YELLOW))
 
