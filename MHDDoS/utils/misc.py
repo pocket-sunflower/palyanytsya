@@ -3,7 +3,8 @@ Miscellaneous utilities used by MHDDoS.
 """
 
 import ctypes
-from multiprocessing import Queue, Lock
+from multiprocessing import Queue
+from threading import Lock
 from multiprocessing.sharedctypes import RawValue
 from queue import Empty
 from typing import Any
@@ -11,24 +12,24 @@ from typing import Any
 
 class Counter(object):
 
-    def __init__(self, value=0, value_type=ctypes.c_longlong):
-        self._value = RawValue(value_type, value)
+    def __init__(self, initial_value: float = 0):
+        self._value = initial_value
         self._lock = Lock()
 
     def __iadd__(self, value):
         with self._lock:
-            self._value.value += value
+            self._value += value
         return self
 
     def __int__(self):
-        return self._value.value
+        return int(self._value)
 
     def __float__(self):
-        return self._value.value
+        return float(self._value)
 
     def set(self, value):
         with self._lock:
-            self._value.value = value
+            self._value = value
         return self
 
 

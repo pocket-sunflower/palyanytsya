@@ -128,7 +128,10 @@ class Layer4(Thread):
                     self._bytes_sent += 1024
                     self._requests_sent += 1
                     self._last_request_timestamp.set(time.time())
+
         except Exception:
+            pass
+        finally:
             s.close()
 
     def MINECRAFT(self) -> None:
@@ -149,6 +152,8 @@ class Layer4(Thread):
                     self._last_request_timestamp.set(time.time())
 
         except Exception:
+            pass
+        finally:
             s.close()
 
     def UDP(self) -> None:
@@ -161,6 +166,8 @@ class Layer4(Thread):
                     self._last_request_timestamp.set(time.time())
 
         except Exception:
+            pass
+        finally:
             s.close()
 
     def SYN(self) -> None:
@@ -175,6 +182,8 @@ class Layer4(Thread):
                     self._last_request_timestamp.set(time.time())
 
         except Exception:
+            pass
+        finally:
             s.close()
 
     def AMP(self) -> None:
@@ -189,6 +198,8 @@ class Layer4(Thread):
                     self._last_request_timestamp.set(time.time())
 
         except Exception:
+            pass
+        finally:
             s.close()
 
     def MCBOT(self) -> None:
@@ -227,6 +238,8 @@ class Layer4(Thread):
                         c -= 1
 
         except Exception:
+            pass
+        finally:
             s.close()
 
     def VSE(self) -> None:
@@ -240,7 +253,10 @@ class Layer4(Thread):
                     self._bytes_sent += len(payload)
                     self._requests_sent += 1
                     self._last_request_timestamp.set(time.time())
+
         except Exception:
+            pass
+        finally:
             s.close()
 
     def _genrate_syn(self) -> bytes:

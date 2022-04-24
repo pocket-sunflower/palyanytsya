@@ -102,7 +102,7 @@ class Attack(Process):
     rolling_bytes_counter = Counter()
     total_requests_counter = Counter()
     total_bytes_counter = Counter()
-    last_request_timestamp_counter = Counter(value_type=ctypes.c_double)
+    last_request_timestamp_counter = Counter()
     last_counters_update_time: float = -1
 
     # STATS
@@ -121,13 +121,13 @@ class Attack(Process):
     def __init__(self,
                  target: Target,
                  attack_methods: List[str],
+                 logging_queue: Queue,
                  requests_per_connection: int = 100,
                  proxies_file_path: str | None = "proxies/proxies.txt",
                  user_agents_file_path: str | None = "user_agents.txt",
                  referrers_file_path: str | None = "referrers.txt",
                  reflectors_file_path: str | None = None,
-                 attack_state_queue: Queue = None,
-                 logging_queue: Queue = None):
+                 attack_state_queue: Queue = None):
         Process.__init__(self, daemon=True)
 
         self.target = target
@@ -152,9 +152,8 @@ class Attack(Process):
             logger.exception(f"Attack process stopped due to {type(e).__name__}: ", exc_info=True)
         except (KeyboardInterrupt, SystemExit) as e:
             logger.info(f"Attack exiting due to {type(e).__name__}.")
-            pass
-
-        self.cleanup()
+        finally:
+            self.cleanup()
 
     def attack(self):
         logger = self.logger
@@ -337,7 +336,7 @@ class Attack(Process):
         # check if we are left with any attack methods
         if len(self.attack_methods) == 0:
             logger.critical(f"None of the {len(self.attack_methods)} provided attack methods were valid. Attack will not be started.")
-            raise ValueError  # TODO: AttackError
+            raise AttackError
 
     def remove_invalid_attack_method(self, method: str, message: str):
         self.attack_methods.remove(method)
@@ -431,7 +430,7 @@ class Attack(Process):
             )
         else:
             self.logger.critical(f"Invalid attack method ('{selected_attack_method}') selected when starting attack thread. Aborting execution.")
-            raise ValueError  # TODO: AttackError
+            raise AttackError
 
         self.attack_threads.append(attack_thread)
         self.attack_threads_stop_events.append(stop_event)
@@ -472,21 +471,16 @@ class Attack(Process):
         """Cleans up after the attack."""
         logger = self.logger
 
-        logger.info("Stopping threads...")
-
         if self.attack_threads:
             logger.info("Stopping attack threads...")
             for event in self.attack_threads_stop_events:
                 event.set()
-        if self.attack_threads:
-            for attack_thread in self.attack_threads:
-                attack_thread.join()
+            # attack threads are daemons, so they will die anyway - we don't wait
             logger.info("Attack threads stopped.")
 
         if self.connectivity_checker_thread:
-            self.connectivity_checker_thread.stop()
             logger.info("Stopping connectivity monitor...")
-        if self.connectivity_checker_thread:
+            self.connectivity_checker_thread.stop()
             self.connectivity_checker_thread.join()
             logger.info("Connectivity monitor stopped.")
 
