@@ -1,21 +1,20 @@
-import logging
 import math
-from typing import Any, Callable
 
-import rich.text
-from rich.panel import Panel
+from rich.console import RenderableType
 from rich.style import Style
 from rich.text import Text
 from textual import events
 from textual.reactive import Reactive
 from textual.widget import Widget
 
+from utils.tui.styles import Styles
+
 
 class Flair(Widget):
     mouse_over = Reactive(False)
     clicked = Reactive(False)
 
-    def render(self) -> Any:
+    def render(self) -> RenderableType:
 
         s = "[i]clicked[/]" if self.clicked else ""
         # return Panel(f"Hello [b]World[/b] {s}", style=("on red" if self.mouse_over else ""))
@@ -32,29 +31,23 @@ class Flair(Widget):
     def on_click(self, event: events.Click) -> None:
         self.clicked = True
 
-    class Styles:
-        ua_yellow = Style(color="yellow")
-        ua_blue = Style(color="blue")
-        green = Style(color="green", italic=True)
-        red = Style(color="red", blink=True)
-
     @staticmethod
     def get_flair_string() -> Text:
 
-        heart = Text("♥", style=Flair.Styles.red)
+        heart = Text("♥", style=Styles.red)
 
         flair = Text()
         flair.append("\n")
-        flair.append("A heavy-duty freedom-infused MHDDoS wrapper...\n", style=Flair.Styles.green)
+        flair.append("A heavy-duty freedom-infused MHDDoS wrapper...\n", style=Styles.green)
         flair.append("\n")
-        flair.append("██████╗░░█████╗░██╗░░░░░██╗░░░██╗░█████╗░███╗░░██╗██╗░░░██╗████████╗░██████╗██╗░░░██╗░█████╗░\n", style=Flair.Styles.ua_blue)
-        flair.append("██╔══██╗██╔══██╗██║░░░░░╚██╗░██╔╝██╔══██╗████╗░██║╚██╗░██╔╝╚══██╔══╝██╔════╝╚██╗░██╔╝██╔══██╗\n", style=Flair.Styles.ua_blue)
-        flair.append("██████╔╝███████║██║░░░░░░╚████╔╝░███████║██╔██╗██║░╚████╔╝░░░░██║░░░╚█████╗░░╚████╔╝░███████║\n", style=Flair.Styles.ua_blue)
-        flair.append("██╔═══╝░██╔══██║██║░░░░░░░╚██╔╝░░██╔══██║██║╚████║░░╚██╔╝░░░░░██║░░░░╚═══██╗░░╚██╔╝░░██╔══██║\n", style=Flair.Styles.ua_yellow)
-        flair.append("██║░░░░░██║░░██║███████╗░░░██║░░░██║░░██║██║░╚███║░░░██║░░░░░░██║░░░██████╔╝░░░██║░░░██║░░██║\n", style=Flair.Styles.ua_yellow)
-        flair.append("╚═╝░░░░░╚═╝░░╚═╝╚══════╝░░░╚═╝░░░╚═╝░░╚═╝╚═╝░░╚══╝░░░╚═╝░░░░░░╚═╝░░░╚═════╝░░░░╚═╝░░░╚═╝░░╚═╝\n", style=Flair.Styles.ua_yellow)
+        flair.append("██████╗░░█████╗░██╗░░░░░██╗░░░██╗░█████╗░███╗░░██╗██╗░░░██╗████████╗░██████╗██╗░░░██╗░█████╗░\n", style=Styles.ua_blue)
+        flair.append("██╔══██╗██╔══██╗██║░░░░░╚██╗░██╔╝██╔══██╗████╗░██║╚██╗░██╔╝╚══██╔══╝██╔════╝╚██╗░██╔╝██╔══██╗\n", style=Styles.ua_blue)
+        flair.append("██████╔╝███████║██║░░░░░░╚████╔╝░███████║██╔██╗██║░╚████╔╝░░░░██║░░░╚█████╗░░╚████╔╝░███████║\n", style=Styles.ua_blue)
+        flair.append("██╔═══╝░██╔══██║██║░░░░░░░╚██╔╝░░██╔══██║██║╚████║░░╚██╔╝░░░░░██║░░░░╚═══██╗░░╚██╔╝░░██╔══██║\n", style=Styles.ua_yellow)
+        flair.append("██║░░░░░██║░░██║███████╗░░░██║░░░██║░░██║██║░╚███║░░░██║░░░░░░██║░░░██████╔╝░░░██║░░░██║░░██║\n", style=Styles.ua_yellow)
+        flair.append("╚═╝░░░░░╚═╝░░╚═╝╚══════╝░░░╚═╝░░░╚═╝░░╚═╝╚═╝░░╚══╝░░░╚═╝░░░░░░╚═╝░░░╚═════╝░░░░╚═╝░░░╚═╝░░╚═╝\n", style=Styles.ua_yellow)
         flair.append("\n")
-        flair.append(f"                                                                  ...from Ukraine with love ", style=Flair.Styles.green)
+        flair.append(f"                                                                  ...from Ukraine with love ", style=Styles.green)
         flair.append(heart)
         flair.append("\n")
 
@@ -110,7 +103,7 @@ class Flair(Widget):
         flair_height = flair_text_height
 
         for i in range(flair_height):
-            color = Flair.Styles.ua_blue if (i < flair_height // 2) else Flair.Styles.ua_yellow
+            color = Styles.ua_blue if (i < flair_height // 2) else Styles.ua_yellow
             flair.append(craft_flair_side(True, color))
 
             line = flair_text_split[i] if (i < flair_text_height) else Text()
