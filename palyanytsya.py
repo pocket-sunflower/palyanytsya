@@ -11,6 +11,7 @@ from utils.gui import GUI, get_flair_string
 from utils.input_args import parse_command_line_args
 from utils.logs import get_logger_for_current_process, initialize_logging
 from utils.supervisor import AttackSupervisor
+from utils.tui.tui import run_tui
 
 logger = None
 
@@ -63,12 +64,16 @@ def velyka_kara():
         time.sleep(0.5)
 
 
+def krasyva_kara():
+    run_tui()
+
+
 if __name__ == '__main__':
     multiprocessing.set_start_method("spawn", force=True)  # required for Windows support
 
     args = parse_command_line_args()
-    logging_queue = initialize_logging(args.no_gui)
+    # logging_queue = initialize_logging(args.no_gui)
 
-    velyka_kara()
+    krasyva_kara()
 
-    input("Execution finished.\nPress ENTER to exit... ")
+    # input("Execution finished.\nPress ENTER to exit... ")

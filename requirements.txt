@@ -50,3 +50,4 @@ x256~=0.0.3
 yarl~=1.7.2
 coloredlogs
 prettytable
+textual==0.1.17
