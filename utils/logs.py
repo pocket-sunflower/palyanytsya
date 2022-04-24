@@ -36,42 +36,14 @@ logging.basicConfig(format='%(asctime)s %(name)s %(process)s [%(levelname)s] %(m
 # )
 
 
-class SafeQueueListener(QueueListener):
-    def _monitor(self):
-        """
-        Monitor the queue for records, and ask the handler
-        to deal with them.
-
-        This method runs on a separate, internal thread.
-        The thread will terminate if it sees a sentinel object in the queue.
-        """
-        try:
-            q = self.queue
-            has_task_done = hasattr(q, 'task_done')
-            while True:
-                try:
-                    record = self.dequeue(True)
-                    if record is self._sentinel:
-                        if has_task_done:
-                            q.task_done()
-                        break
-                    self.handle(record)
-                    if has_task_done:
-                        q.task_done()
-                except Empty:
-                    break
-        except Exception as e:
-            pass
-
-
-def initialize_logging(no_gui: bool = True) -> Queue:
+def initialize_logging(no_gui: bool = True) -> (Queue, QueueListener):
     logging_queue = Queue()
 
     # this writes to file
     if not os.path.exists("logs"):
         os.mkdir("logs")
     file_handler = TimedRotatingFileHandler(
-            filename="logs/log.txt",
+            filename="logs/palyanytsya.log",
             when='h',
             interval=1,
             backupCount=0,
@@ -109,23 +81,22 @@ def initialize_logging(no_gui: bool = True) -> Queue:
     )
     queue_listener.start()
 
-    return logging_queue
+    return logging_queue, queue_listener
 
 
-def get_logger_for_current_process(logging_queue: Queue, name: str = None) -> logging.Logger:
+def get_logger_for_current_process(logging_queue: Queue, name: str = None, level: str = "INFO") -> logging.Logger:
     if logging_queue is None:
         raise RuntimeError(f"A logging queue is required to initialize a process logger "
                            f"(process {multiprocessing.current_process().pid} '{multiprocessing.current_process().name}', "
                            f"thread '{threading.current_thread().name}').")
 
+    if name is None:
+        name = multiprocessing.current_process().name
+
     logger = logging.getLogger(name)
     logger.handlers = [
         QueueHandler(logging_queue)
     ]
-    logger.setLevel("INFO")
-
-    # from blessed import Terminal
-    # t = Terminal()
-    # print(t.pink(f"Initialized logger: {name} {multiprocessing.Process.pid} {logging_queue.__hash__()}"))
+    logger.setLevel(level)
 
     return logger
