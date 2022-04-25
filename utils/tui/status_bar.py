@@ -1,30 +1,24 @@
-from rich.align import Align, AlignMethod
-from rich.console import RenderableType, Group
-from rich.layout import Layout
-from rich.panel import Panel
-from rich.progress import Progress
+from rich.align import Align
+from rich.console import RenderableType
 from rich.table import Table
 from rich.text import Text
-from textual import events
-from textual.message import Message
-from textual.views import DockView
+from textual.reactive import Reactive
 from textual.widget import Widget
 
 from utils.supervisor import AttackSupervisorState
-from utils.tui.events import SupervisorStateUpdated, TestFire
+from utils.tui.messages import SupervisorStateUpdated
 from utils.tui.styles import Styles
 
 
 class StatusBar(Widget):
-    supervisor_state: AttackSupervisorState = None
+    supervisor_state: AttackSupervisorState = Reactive(None)
 
     def render(self) -> RenderableType:
-
-        self.supervisor_state = self.app.supervisor_state
-
         grid = Table.grid(expand=True)
 
         text = self.get_ip_info()
+        if not text:
+            text = Text(" ")
         grid.add_row(Align(text, align="center"), style=Styles.status_bar)
 
         infos = [
@@ -41,30 +35,36 @@ class StatusBar(Widget):
 
         return grid
 
+    def handle_supervisor_state_updated(self, message: SupervisorStateUpdated) -> None:
+        self.supervisor_state = message.new_state
+
     def get_ip_info(self) -> Text:
-        if self.supervisor_state is None:
+        supervisor_state = self.supervisor_state
+        if supervisor_state is None:
             return Text()
 
         text = Text()
 
-        local_ip_geolocation = self.supervisor_state.local_ip_geolocation
+        local_ip_geolocation = supervisor_state.local_ip_geolocation
         if local_ip_geolocation is None:
-            text += "Public IP: Checking..."
+            text += "Public IP: "
+            text += Text("Checking...", style="blink")
         else:
             text += f"Public IP: {local_ip_geolocation}"
 
-        if self.supervisor_state.is_fetching_geolocation:
+        if supervisor_state.is_fetching_geolocation:
             text += ""
 
         return text
 
     def get_targets_info(self) -> Text:
-        if self.supervisor_state is None:
+        supervisor_state = self.supervisor_state
+        if supervisor_state is None:
             return Text()
 
         text = Text()
 
-        n_targets = self.supervisor_state.targets_count
+        n_targets = supervisor_state.targets_count
         if n_targets == 1:
             text += f"1 target"
         elif n_targets > 1:
@@ -72,18 +72,19 @@ class StatusBar(Widget):
         else:
             text += f"No targets"
 
-        if self.supervisor_state.is_fetching_targets:
-            text += " (fetching)"
+        if supervisor_state.is_fetching_targets:
+            text += Text(" (fetching)", style="blink")
 
         return text
 
     def get_proxies_info(self) -> Text:
-        if self.supervisor_state is None:
+        supervisor_state = self.supervisor_state
+        if supervisor_state is None:
             return Text()
 
         text = Text()
 
-        n_proxies = self.supervisor_state.proxies_count
+        n_proxies = supervisor_state.proxies_count
         if n_proxies == 1:
             text += f"1 proxy"
         elif n_proxies > 1:
@@ -91,18 +92,19 @@ class StatusBar(Widget):
         else:
             text += f"No proxies"
 
-        if self.supervisor_state.is_fetching_proxies:
-            text += " (fetching)"
+        if supervisor_state.is_fetching_proxies:
+            text += Text(" (fetching)", style="blink")
 
         return text
 
     def get_attacks_info(self) -> Text:
-        if self.supervisor_state is None:
+        supervisor_state = self.supervisor_state
+        if supervisor_state is None:
             return Text()
 
         text = Text()
 
-        n_attacks = self.supervisor_state.attack_processes_count
+        n_attacks = supervisor_state.attack_processes_count
         if n_attacks == 1:
             text += f"1 attack process"
         elif n_attacks > 1:

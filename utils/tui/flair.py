@@ -7,34 +7,25 @@ from textual import events
 from textual.reactive import Reactive
 from textual.widget import Widget
 
+from utils.supervisor import AttackSupervisorState
+from utils.tui.messages import SupervisorStateUpdated
 from utils.tui.styles import Styles
 
 
 class Flair(Widget):
-    mouse_over = Reactive(False)
-    clicked = Reactive(False)
+    supervisor_state: AttackSupervisorState = Reactive(None)
 
     def render(self) -> RenderableType:
-
-        s = "[i]clicked[/]" if self.clicked else ""
-        # return Panel(f"Hello [b]World[/b] {s}", style=("on red" if self.mouse_over else ""))
         flair = self.get_flair_with_gradient()
-
         return flair
 
-    def on_enter(self) -> None:
-        self.mouse_over = True
-
-    def on_leave(self) -> None:
-        self.mouse_over = False
-
-    def on_click(self, event: events.Click) -> None:
-        self.clicked = True
+    def handle_supervisor_state_updated(self, message: SupervisorStateUpdated) -> None:
+        self.supervisor_state = message.new_state
 
     @staticmethod
-    def get_flair_string() -> Text:
+    def get_flair_string(beating_heart: bool = False) -> Text:
 
-        heart = Text("♥", style=Styles.red)
+        heart = Text("♥", style=Styles.red_blink if (beating_heart) else Styles.red)
 
         flair = Text()
         flair.append("\n")
@@ -59,7 +50,10 @@ class Flair(Widget):
     def get_flair_with_gradient(self) -> Text:
         gradient = ["█", "▓", "▒", "░", " "]
 
-        flair_text = Flair.get_flair_string()
+        n_attacks = self.supervisor_state.attack_processes_count if (self.supervisor_state is not None) else 0
+        is_attacking = n_attacks > 0
+
+        flair_text = Flair.get_flair_string(beating_heart=is_attacking)
         flair_text_dimensions = self.console.measure(flair_text)
         flair_text_width = flair_text_dimensions.maximum
 
