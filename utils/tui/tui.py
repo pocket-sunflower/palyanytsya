@@ -17,6 +17,7 @@ from utils.tui import messages
 from utils.tui.messages import SupervisorStateUpdated, SelectedAttackIndexUpdated, SelectedMenuIndexUpdated
 from utils.tui.flair import Flair
 from utils.tui.menu_selector import MenuSelector
+from utils.tui.overview_menu import OverviewMenu
 from utils.tui.status_bar import StatusBar
 
 
@@ -60,11 +61,12 @@ class PalyanytsyaApp(App):
         )
 
         self.menu_selector = MenuSelector()
+        self.overview_menu = OverviewMenu()
 
         await self.view.dock(Flair(), edge="top", size=12)
         await self.view.dock(StatusBar(), edge="top", size=2)
         await self.view.dock(MenuSelector(), edge="top", size=3)
-        # await self.view.dock(*top_group, edge="top", size=10)
+        await self.view.dock(self.overview_menu, edge="top")
         await self.view.dock(*bottom_group, edge="bottom", size=2)
 
     async def shutdown(self):
@@ -82,6 +84,9 @@ class PalyanytsyaApp(App):
 
     async def on_key(self, event: events.Key) -> None:
         self.log(f"key pressed: {event.key}")
+
+        if not self.is_running:
+            return
 
         if self.is_displaying_popup:
             match event.key:
@@ -103,27 +108,89 @@ class PalyanytsyaApp(App):
     def action_select_menu(self, index: int = 0):
         if not self.is_supervisor_loaded:
             self.selected_menu_index = 0
+            return
         if self.supervisor_state.attack_processes_count == 0:
-            self.selected_menu_index = 1
+            self.selected_menu_index = 0
+            return
 
         index = min(index, self.menu_selector.n_menus - 1)
         index = max(index, 0)
         self.selected_menu_index = index
 
     def action_select_next_menu(self):
+        if not self.is_supervisor_loaded:
+            self.action_select_menu(0)
+
         self.action_select_menu(self.selected_menu_index + 1)
 
     def action_select_previous_menu(self):
+        if not self.is_supervisor_loaded:
+            self.action_select_menu(0)
+
         self.action_select_menu(self.selected_menu_index - 1)
 
     def action_select_next_item(self):
-        raise NotImplementedError
+        if self.menu_selector.is_in_overview_menu:
+            self.action_select_next_attack()
+        elif self.menu_selector.is_in_details_menu:
+            self.action_select_next_connectivity_page()
 
     def action_select_previous_item(self):
-        raise NotImplementedError
+        if self.menu_selector.is_in_overview_menu:
+            self.action_select_previous_attack()
+        elif self.menu_selector.is_in_details_menu:
+            self.action_select_previous_connectivity_page()
 
     def action_accept_popup(self):
         raise NotImplementedError
+
+    def action_select_attack(self, index: int = 0):
+        if not self.is_supervisor_loaded:
+            self.selected_attack_index = 0
+            return
+        elif self.supervisor_state.attack_processes_count == 0:
+            self.selected_attack_index = 0
+            return
+
+        n_selectable_attacks = self.supervisor_state.attack_processes_count
+
+        if index >= n_selectable_attacks:
+            index = 0
+        elif index < 0:
+            index = max(n_selectable_attacks - 1, 0)
+
+        self.selected_attack_index = index
+
+    def action_select_next_attack(self):
+        self.action_select_attack(self.selected_attack_index + 1)
+
+    def action_select_previous_attack(self):
+        self.action_select_attack(self.selected_attack_index - 1)
+
+    def action_select_connectivity_page(self, index: int = 0):
+        raise NotImplementedError
+
+        if not self.is_supervisor_loaded:
+            self.selected_attack_index = 0
+            return
+        elif self.supervisor_state.attack_processes_count == 0:
+            self.selected_attack_index = 0
+            return
+
+        n_selectable_attacks = self.supervisor_state.attack_processes_count
+
+        if index >= n_selectable_attacks:
+            index = 0
+        elif index < 0:
+            index = max(n_selectable_attacks - 1, 0)
+
+        self.selected_attack_index = index
+
+    def action_select_next_connectivity_page(self):
+        self.action_select_connectivity_page(self.selected_attack_index + 1)
+
+    def action_select_previous_connectivity_page(self):
+        self.action_select_connectivity_page(self.selected_attack_index - 1)
 
     # WATCHERS
 

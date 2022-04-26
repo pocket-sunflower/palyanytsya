@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import List, Callable
 
 from rich.align import Align
@@ -18,10 +16,6 @@ from utils.tui.styles import Styles
 
 class MenuSelector(Widget):
 
-    supervisor_state: AttackSupervisorState = Reactive(None)
-    selected_attack_index: int = Reactive(0)
-    selected_menu_index: int = Reactive(0)
-
     def __init__(self):
         Widget.__init__(self, "MenuSelector")
 
@@ -36,6 +30,8 @@ class MenuSelector(Widget):
             is_selected = i == self.selected_menu_index
 
             tab = item_builder(is_selected)
+            tab.overflow = "ellipsis"
+            tab.no_wrap = True
             tab = Panel(tab, style=Styles.selected if is_selected else Styles.muted)
 
             menu_tabs.append(tab)
@@ -49,21 +45,16 @@ class MenuSelector(Widget):
 
         return Align(grid, align="center")
 
-    # EVENT HANDLERS
-
-    async def on_key(self, event: events.Key) -> None:
-        self.log(f"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA key pressed: {event.key}")
-
     # MESSAGE HANDLERS
 
     def handle_supervisor_state_updated(self, message: messages.SupervisorStateUpdated) -> None:
-        self.supervisor_state = message.new_state
+        self.refresh()
 
     def handle_selected_attack_index_updated(self, message: messages.SelectedAttackIndexUpdated) -> None:
-        self.selected_attack_index = message.new_index
+        self.refresh()
 
     def handle_selected_menu_index_updated(self, message: messages.SelectedMenuIndexUpdated) -> None:
-        self.selected_menu_index = message.new_index
+        self.refresh()
 
     # CONTENT
 
@@ -108,3 +99,15 @@ class MenuSelector(Widget):
     @property
     def is_in_details_menu(self) -> bool:
         return self.selected_menu_index == 1
+
+    @property
+    def supervisor_state(self) -> AttackSupervisorState:
+        return self.app.supervisor_state
+
+    @property
+    def selected_attack_index(self) -> int:
+        return self.app.selected_attack_index
+
+    @property
+    def selected_menu_index(self) -> int:
+        return self.app.selected_menu_index

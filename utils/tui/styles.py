@@ -11,3 +11,15 @@ class Styles:
 
     selected = Style(color="black", bgcolor="white")
     muted = Style(color="rgb(128,128,128)")
+
+    waiting = Style(blink=True)
+
+    ok = Style(color="green")
+    warning = Style(color="yellow")
+    bad = Style(color="red")
+    critical = Style(color="red", bold=True)
+
+    special = Style(color="cyan")
+
+    attacks_header = Style(color="black", bgcolor="dark_orange")
+

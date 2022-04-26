@@ -11,7 +11,6 @@ from utils.tui.styles import Styles
 
 
 class StatusBar(Widget):
-    supervisor_state: AttackSupervisorState = Reactive(None)
 
     def render(self) -> RenderableType:
         grid = Table.grid(expand=True)
@@ -19,6 +18,8 @@ class StatusBar(Widget):
         text = self.get_ip_info()
         if not text:
             text = Text(" ")
+        text.overflow = "ellipsis"
+        text.no_wrap = True
         grid.add_row(Align(text, align="center"), style=Styles.status_bar)
 
         infos = [
@@ -27,6 +28,8 @@ class StatusBar(Widget):
             self.get_attacks_info(),
         ]
         text = Text(" • ").join(infos)
+        text.overflow = "ellipsis"
+        text.no_wrap = True
         grid.add_row(Align(text, align="center"), style=Styles.status_bar)
 
         # grid.style = Styles.status_bar
@@ -36,7 +39,7 @@ class StatusBar(Widget):
         return grid
 
     def handle_supervisor_state_updated(self, message: SupervisorStateUpdated) -> None:
-        self.supervisor_state = message.new_state
+        self.refresh()
 
     def get_ip_info(self) -> Text:
         supervisor_state = self.supervisor_state
@@ -113,3 +116,9 @@ class StatusBar(Widget):
             text += f"No attack processes"
 
         return text
+
+    # PROPERTIES
+
+    @property
+    def supervisor_state(self) -> AttackSupervisorState:
+        return self.app.supervisor_state
