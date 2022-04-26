@@ -16,8 +16,10 @@ from utils.tui.styles import Styles
 
 class MenuSelector(Widget):
 
-    def __init__(self):
-        Widget.__init__(self, "MenuSelector")
+    def __init__(self, menus: List[Widget]):
+        Widget.__init__(self)
+
+        self.menus: List[Widget] = menus
 
         self.menu_item_builders: List[Callable[[bool], Text]] = [
             self.get_overview_menu_header,
@@ -25,6 +27,8 @@ class MenuSelector(Widget):
         ]
 
     def render(self) -> RenderableType:
+        self.update_menu_visibility()
+
         menu_tabs = []
         for i, item_builder in enumerate(self.menu_item_builders):
             is_selected = i == self.selected_menu_index
@@ -47,14 +51,20 @@ class MenuSelector(Widget):
 
     # MESSAGE HANDLERS
 
-    def handle_supervisor_state_updated(self, message: messages.SupervisorStateUpdated) -> None:
+    def handle_supervisor_state_updated(self) -> None:
         self.refresh()
 
-    def handle_selected_attack_index_updated(self, message: messages.SelectedAttackIndexUpdated) -> None:
+    def handle_selected_menu_index_updated(self) -> None:
         self.refresh()
 
-    def handle_selected_menu_index_updated(self, message: messages.SelectedMenuIndexUpdated) -> None:
+    def handle_selected_attack_index_updated(self) -> None:
         self.refresh()
+
+    # LOGIC
+
+    def update_menu_visibility(self):
+        for i, menu in enumerate(self.menus):
+            menu.visible = (i == self.selected_menu_index)
 
     # CONTENT
 

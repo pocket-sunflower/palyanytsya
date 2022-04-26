@@ -22,4 +22,5 @@ class Styles:
     special = Style(color="cyan")
 
     attacks_header = Style(color="black", bgcolor="dark_orange")
+    connectivity_header = Style(color="black", bgcolor="dodger_blue1")
 

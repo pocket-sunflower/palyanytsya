@@ -11,13 +11,19 @@ class SupervisorStateUpdated(Message, bubble=True):
         self.new_state = new_state
 
 
+class SelectedMenuIndexUpdated(Message, bubble=True):
+    def __init__(self, sender: MessageTarget, new_index: int):
+        Message.__init__(self, sender)
+        self.new_index = new_index
+
+
 class SelectedAttackIndexUpdated(Message, bubble=True):
     def __init__(self, sender: MessageTarget, new_index: int):
         Message.__init__(self, sender)
         self.new_index = new_index
 
 
-class SelectedMenuIndexUpdated(Message, bubble=True):
+class SelectedConnectivityPageIndexUpdated(Message, bubble=True):
     def __init__(self, sender: MessageTarget, new_index: int):
         Message.__init__(self, sender)
         self.new_index = new_index

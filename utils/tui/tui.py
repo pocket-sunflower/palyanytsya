@@ -1,23 +1,21 @@
+import math
 import time
 from multiprocessing import Queue
-from typing import List
 
 from textual import events, messages
 from textual.app import App
 from textual.message import Message
-from textual.message_pump import MessagePump
 from textual.reactive import Reactive
-from textual.widget import Widget
 from textual.widgets import Placeholder
 
 from MHDDoS.utils.misc import get_last_from_queue
 from utils.input_args import Arguments
 from utils.supervisor import AttackSupervisor, AttackSupervisorState
 from utils.tui import messages
-from utils.tui.messages import SupervisorStateUpdated, SelectedAttackIndexUpdated, SelectedMenuIndexUpdated
 from utils.tui.flair import Flair
 from utils.tui.menu_selector import MenuSelector
-from utils.tui.overview_menu import OverviewMenu
+from utils.tui.menus.details_menu import DetailsMenu
+from utils.tui.menus.overview_menu import OverviewMenu
 from utils.tui.status_bar import StatusBar
 
 
@@ -30,10 +28,12 @@ class PalyanytsyaApp(App):
     supervisor_state_queue: Queue
     supervisor_state: AttackSupervisorState = Reactive(None)
 
-    selected_attack_index: int = Reactive(0)
     selected_menu_index: int = Reactive(0)
+    selected_attack_index: int = Reactive(0)
+    selected_connectivity_page_index: int = Reactive(0)
 
     menu_selector: MenuSelector = None
+    details_menu: DetailsMenu = None
 
     is_displaying_popup: bool = Reactive(False)
 
@@ -60,14 +60,20 @@ class PalyanytsyaApp(App):
             Placeholder(name="Debug", height=1),
         )
 
-        self.menu_selector = MenuSelector()
-        self.overview_menu = OverviewMenu()
+        self.details_menu = DetailsMenu()
+        self.menu_selector = MenuSelector(
+            menus=[
+                OverviewMenu(),
+                self.details_menu
+            ]
+        )
 
         await self.view.dock(Flair(), edge="top", size=12)
         await self.view.dock(StatusBar(), edge="top", size=2)
-        await self.view.dock(MenuSelector(), edge="top", size=3)
-        await self.view.dock(self.overview_menu, edge="top")
-        await self.view.dock(*bottom_group, edge="bottom", size=2)
+        await self.view.dock(self.menu_selector, edge="top", size=3)
+        for menu in self.menu_selector.menus:
+            await self.view.dock(menu, edge="top")
+        await self.view.dock(*bottom_group, edge="bottom", size=2, z=1)
 
     async def shutdown(self):
         # shutdown supervisor
@@ -168,40 +174,45 @@ class PalyanytsyaApp(App):
         self.action_select_attack(self.selected_attack_index - 1)
 
     def action_select_connectivity_page(self, index: int = 0):
-        raise NotImplementedError
-
         if not self.is_supervisor_loaded:
-            self.selected_attack_index = 0
-            return
-        elif self.supervisor_state.attack_processes_count == 0:
-            self.selected_attack_index = 0
+            self.selected_connectivity_page_index = 0
             return
 
-        n_selectable_attacks = self.supervisor_state.attack_processes_count
+        if self.supervisor_state.attack_processes_count == 0:
+            self.selected_connectivity_page_index = 0
+            return
 
-        if index >= n_selectable_attacks:
+        selected_attack = self.supervisor_state.attack_states[self.selected_attack_index]
+        n_selectable_connectivties = max(1, selected_attack.connectivity_state.total_proxies_count)
+
+        n_connectivity_pages = math.ceil(n_selectable_connectivties / self.details_menu.connectivities_per_page)
+
+        if index >= n_connectivity_pages:
             index = 0
         elif index < 0:
-            index = max(n_selectable_attacks - 1, 0)
+            index = max(n_connectivity_pages - 1, 0)
 
-        self.selected_attack_index = index
+        self.selected_connectivity_page_index = index
 
     def action_select_next_connectivity_page(self):
-        self.action_select_connectivity_page(self.selected_attack_index + 1)
+        self.action_select_connectivity_page(self.selected_connectivity_page_index + 1)
 
     def action_select_previous_connectivity_page(self):
-        self.action_select_connectivity_page(self.selected_attack_index - 1)
+        self.action_select_connectivity_page(self.selected_connectivity_page_index - 1)
 
     # WATCHERS
 
     async def watch_supervisor_state(self, new_state: AttackSupervisorState | None) -> None:
         await self._post_message_to_children(messages.SupervisorStateUpdated(self, new_state))
 
+    async def watch_selected_menu_index(self, new_index: int) -> None:
+        await self._post_message_to_children(messages.SelectedMenuIndexUpdated(self, new_index))
+
     async def watch_selected_attack_index(self, new_index: int) -> None:
         await self._post_message_to_children(messages.SelectedAttackIndexUpdated(self, new_index))
 
-    async def watch_selected_menu_index(self, new_index: int) -> None:
-        await self._post_message_to_children(messages.SelectedMenuIndexUpdated(self, new_index))
+    async def watch_selected_connectivity_page_index(self, new_index: int) -> None:
+        await self._post_message_to_children(messages.SelectedConnectivityPageIndexUpdated(self, new_index))
 
     async def _post_message_to_children(self, message: Message):
         for child in self.children:
@@ -246,5 +257,4 @@ class PalyanytsyaApp(App):
 def run_tui(args: Arguments, logging_queue: Queue):
     PalyanytsyaApp.config = args
     PalyanytsyaApp.logging_queue = logging_queue
-    time.sleep(2)
     PalyanytsyaApp.run(title="Palyanytsya TUI", log="logs/palyanytsya_tui.log")
