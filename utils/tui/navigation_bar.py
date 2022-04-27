@@ -7,10 +7,8 @@ from rich.text import Text
 from textual.widget import Widget
 
 from utils.supervisor import AttackSupervisorState
-from utils.tui import messages
-from utils.tui.menu_selector import MenuSelector
+from utils.tui.definitions.styles import Styles
 from utils.tui.menus.details_menu import DetailsMenu
-from utils.tui.styles import Styles
 
 
 class NavigationBar(Widget):

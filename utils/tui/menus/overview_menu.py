@@ -4,21 +4,15 @@ from rich import box
 from rich.align import Align
 from rich.console import RenderableType
 from rich.panel import Panel
-from rich.style import Style
 from rich.table import Table
 from rich.text import Text
 from textual.reactive import Reactive
 from textual.widget import Widget
 
-from MHDDoS.attack import AttackState
-from MHDDoS.methods.tools import Tools
-from MHDDoS.utils.connectivity import Connectivity, ConnectivityState
-from MHDDoS.utils.targets import Target
 from utils.gui import Pagination
 from utils.supervisor import AttackSupervisorState
-from utils.tui import messages
+from utils.tui.definitions.styles import Styles
 from utils.tui.menus.shared_menu_utils import SharedMenuUtils
-from utils.tui.styles import Styles
 
 
 class OverviewMenu(Widget):

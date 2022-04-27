@@ -12,7 +12,7 @@ from MHDDoS.attack import AttackState
 from MHDDoS.methods.tools import Tools
 from MHDDoS.utils.connectivity import Connectivity, ConnectivityState
 from MHDDoS.utils.targets import Target
-from utils.tui.styles import Styles
+from utils.tui.definitions.styles import Styles
 
 
 class SharedMenuUtils:

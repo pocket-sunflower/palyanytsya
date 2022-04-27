@@ -1,19 +1,17 @@
 import math
-import time
 from multiprocessing import Queue
 
 from textual import events, messages
 from textual.app import App
 from textual.message import Message
 from textual.reactive import Reactive
-from textual.widgets import Placeholder
 
 from MHDDoS.utils.misc import get_last_from_queue
 from utils.input_args import Arguments
 from utils.supervisor import AttackSupervisor, AttackSupervisorState
-from utils.tui import messages
+from utils.tui.definitions import messages
+from utils.tui.definitions.layers import Layers
 from utils.tui.flair import Flair
-from utils.tui.layers import Layers
 from utils.tui.menu_selector import MenuSelector
 from utils.tui.menus.details_menu import DetailsMenu
 from utils.tui.menus.overview_menu import OverviewMenu

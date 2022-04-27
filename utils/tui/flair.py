@@ -3,13 +3,12 @@ import math
 from rich.console import RenderableType
 from rich.style import Style
 from rich.text import Text
-from textual import events
 from textual.reactive import Reactive
 from textual.widget import Widget
 
 from utils.supervisor import AttackSupervisorState
-from utils.tui.messages import SupervisorStateUpdated
-from utils.tui.styles import Styles
+from utils.tui.definitions.messages import SupervisorStateUpdated
+from utils.tui.definitions.styles import Styles
 
 
 class Flair(Widget):
