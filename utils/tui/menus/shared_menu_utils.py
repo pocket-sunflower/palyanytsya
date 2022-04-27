@@ -203,18 +203,19 @@ class SharedMenuUtils:
             text = Text()
             style = SharedMenuUtils.get_style_for_connectivity(c)
 
-            if c == Connectivity.REACHABLE:
-                text.append(f"REACHABLE\n"
-                            f"Ping {layer_4.avg_rtt:.0f} ms \n"
-                            f"No packets lost")
-            elif Connectivity.PARTIALLY_REACHABLE:
-                text.append(f"PARTIALLY REACHABLE \n"
-                            f"Ping {layer_4.avg_rtt:.0f} ms \n"
-                            f"{layer_4.packet_loss * 100:.0f}% packet loss")
-            elif Connectivity.UNREACHABLE:
-                text.append(f"UNREACHABLE")
-            elif c == Connectivity.UNKNOWN:
-                text.append(f"UNKNOWN")
+            match c:
+                case Connectivity.REACHABLE:
+                    text.append(f"REACHABLE\n"
+                                f"Ping {layer_4.avg_rtt:.0f} ms \n"
+                                f"No packets lost")
+                case Connectivity.PARTIALLY_REACHABLE:
+                    text.append(f"PARTIALLY REACHABLE \n"
+                                f"Ping {layer_4.avg_rtt:.0f} ms \n"
+                                f"{layer_4.packet_loss * 100:.0f}% packet loss")
+                case Connectivity.UNREACHABLE:
+                    text.append(f"UNREACHABLE")
+                case Connectivity.UNKNOWN:
+                    text.append(f"UNKNOWN")
 
             text.style = style
 

@@ -41,7 +41,7 @@ class Connectivity(enum.IntEnum):
         if layer_4 is None:
             return Connectivity.UNKNOWN
         elif layer_4.is_alive:
-            successful_pings_ratio = float(layer_4.packets_sent) / layer_4.packets_received
+            successful_pings_ratio = float(layer_4.packets_sent) / layer_4.packets_received if (layer_4.packets_received > 0) else 0
             if successful_pings_ratio >= 0.9:
                 return Connectivity.REACHABLE
             elif 0 < successful_pings_ratio < 0.9:
