@@ -23,4 +23,5 @@ class Styles:
 
     attacks_header = Style(color="black", bgcolor="dark_orange")
     connectivity_header = Style(color="black", bgcolor="dodger_blue1")
-
+    navigation_key = Style(color="black", bgcolor="yellow", italic=True)
+    navigation_bar = Style(color="white", bgcolor="black")

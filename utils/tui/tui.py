@@ -13,9 +13,11 @@ from utils.input_args import Arguments
 from utils.supervisor import AttackSupervisor, AttackSupervisorState
 from utils.tui import messages
 from utils.tui.flair import Flair
+from utils.tui.layers import Layers
 from utils.tui.menu_selector import MenuSelector
 from utils.tui.menus.details_menu import DetailsMenu
 from utils.tui.menus.overview_menu import OverviewMenu
+from utils.tui.navigation_bar import NavigationBar
 from utils.tui.status_bar import StatusBar
 
 
@@ -50,16 +52,6 @@ class PalyanytsyaApp(App):
     async def on_mount(self) -> None:
         """Mount the calculator widget."""
 
-        top_group = (
-            Placeholder(name="Statusbar"),
-            Placeholder(name="Spacer"),
-        )
-
-        bottom_group = (
-            Placeholder(name="Navigation", height=1),
-            Placeholder(name="Debug", height=1),
-        )
-
         self.details_menu = DetailsMenu()
         self.menu_selector = MenuSelector(
             menus=[
@@ -73,7 +65,8 @@ class PalyanytsyaApp(App):
         await self.view.dock(self.menu_selector, edge="top", size=3)
         for menu in self.menu_selector.menus:
             await self.view.dock(menu, edge="top")
-        await self.view.dock(*bottom_group, edge="bottom", size=2, z=1)
+
+        await self.view.dock(NavigationBar(self.details_menu), edge="bottom", size=1, z=Layers.FOOTER)
 
     async def shutdown(self):
         # shutdown supervisor
@@ -246,12 +239,12 @@ class PalyanytsyaApp(App):
         return True
 
     @property
-    def is_in_target_status_view(self) -> bool:
-        return self._target_status_view.enabled
+    def is_in_overview_menu(self) -> bool:
+        return self.selected_menu_index == 0
 
     @property
-    def is_in_attacks_view(self) -> bool:
-        return self._attacks_view.enabled
+    def is_in_details_menu(self) -> bool:
+        return self.selected_menu_index == 1
 
 
 def run_tui(args: Arguments, logging_queue: Queue):
