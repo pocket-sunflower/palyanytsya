@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import multiprocessing
+import queue
 import threading
 import time
 from dataclasses import dataclass, field
@@ -58,9 +60,9 @@ class AttackSupervisor(Thread):
     """Thread which controls the state of the attack processes in Palyanytsya."""
 
     _args: Arguments
-    _attacks_state_queue: Queue
-    _supervisor_state_queue: Queue
-    _logging_queue: Queue
+    _attacks_state_queue: multiprocessing.Queue
+    _supervisor_state_queue: queue.Queue
+    _logging_queue: multiprocessing.Queue
 
     _targets: List[Target] = []
     _proxies_addresses: List[str] = []
@@ -80,26 +82,29 @@ class AttackSupervisor(Thread):
 
     _last_geolocation: IPGeolocationData = None
 
+    _state_publisher_thread: Thread = None
+
+    exception: Exception = None
+
     def __init__(self,
                  args: Arguments,
-                 attacks_state_queue: Queue,
-                 supervisor_state_queue: Queue,
-                 logging_queue: Queue):
+                 supervisor_state_queue: queue.Queue,
+                 logging_queue: multiprocessing.Queue):
         Thread.__init__(self, daemon=True, name="Supervisor")
 
         self.logger = get_logger_for_current_process(logging_queue, "SUPERVISOR")
         self._logging_queue = logging_queue
 
         self._args = args
-        self._attacks_state_queue = attacks_state_queue
         self._supervisor_state_queue = supervisor_state_queue
+        self._attacks_state_queue = Queue()
 
         self._targets_fetch_interval = TimeInterval(args.config_fetch_interval)
         self._proxies_fetch_interval = TimeInterval(args.proxies_fetch_interval)
         self._geolocation_fetch_interval = TimeInterval(20)
 
         stop_event = threading.Event()
-        stop_event.clear()
+        stop_event.set()
         self._stop_event = stop_event
 
         self.logger.info("Starting attack supervisor...")
@@ -107,10 +112,24 @@ class AttackSupervisor(Thread):
     def run(self) -> None:
         logger = self.logger
 
-        state_publisher_thread = Thread(target=self._state_publisher, daemon=True)
-        state_publisher_thread.start()
+        self._state_publisher_thread = Thread(target=self._state_publisher, daemon=True)
+        self._state_publisher_thread.start()
 
-        while not self._stop_event.is_set():
+        try:
+            self.run_main_loop()
+        except Exception as e:
+            self.exception = e
+            logger.exception("Exception in Supervisor", exc_info=e)
+        except (KeyboardInterrupt, SystemExit):
+            pass
+        finally:
+            logger.info("Supervisor thread stopping...")
+            self.stop()
+            self.cleanup()
+            logger.info("Supervisor thread stopped.")
+
+    def run_main_loop(self):
+        while self._stop_event.is_set():
 
             targets_changed = False
             if self._targets_fetch_interval.check_if_has_passed():
@@ -133,18 +152,23 @@ class AttackSupervisor(Thread):
                 self._restart_attacks()
 
             self._update_attack_states()
-
+            
             time.sleep(self._internal_loop_sleep_interval)
 
-        logger.info("Supervisor thread stopping...")
+    def cleanup(self):
+        logger = self.logger
 
+        logger.info("Stopping state publisher thread...")
+        self._state_publisher_thread.join()
+        logger.info("State publisher thread stopped.")
+
+        logger.info("Stopping attacks...")
         self._stop_all_attacks(True)
-        state_publisher_thread.join()
-
-        logger.info("Supervisor thread stopped.")
+        self._attacks_state_queue.close()
+        logger.info("Attacks stopped.")
 
     def stop(self):
-        self._stop_event.set()
+        self._stop_event.clear()
 
     def _fetch_targets(self) -> bool:
         """
@@ -254,7 +278,7 @@ class AttackSupervisor(Thread):
         # kill all existing attack processes
         processes_to_kill = self._attack_processes.copy()
         for process in processes_to_kill:
-            process.kill()
+            process.terminate()
 
         if blocking:
             for process in processes_to_kill:
@@ -314,7 +338,7 @@ class AttackSupervisor(Thread):
         raise NotImplemented
 
     def _state_publisher(self):
-        while not self._stop_event.is_set():
+        while self._stop_event.is_set():
             sorted_attack_states = [self._attack_states[k] for k in sorted(self._attack_states.keys())]
             state = AttackSupervisorState(
                 is_fetching_proxies=self._is_fetching_proxies,
