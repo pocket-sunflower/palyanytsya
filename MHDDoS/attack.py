@@ -12,7 +12,6 @@ from typing import List
 
 import psutil
 from PyRoxy import Proxy
-from blessed import Terminal
 
 from MHDDoS.methods.layer_4 import Layer4
 from MHDDoS.methods.layer_7 import Layer7
@@ -24,9 +23,6 @@ from MHDDoS.utils.misc import Counter, get_last_from_queue
 from MHDDoS.utils.proxies import load_proxies
 from MHDDoS.utils.targets import Target
 from utils.logs import get_logger_for_current_process
-
-
-term = Terminal()
 
 
 class AttackError(Exception):
@@ -83,7 +79,7 @@ class Attack(Process):
     # ATTACK THREADS
     attack_threads: List[Thread] = []
     attack_threads_stop_events: List[Event] = []
-    INITIAL_THREADS_COUNT = 1000
+    INITIAL_THREADS_COUNT = 100
     THREADS_MAX_LIMIT = 1
     THREADS_MIN_LIMIT = 1
     THREADS_STEP = 10
@@ -149,7 +145,7 @@ class Attack(Process):
         try:
             self.attack()
         except Exception as e:
-            logger.exception(f"Attack process stopped due to {type(e).__name__}: ", exc_info=True)
+            logger.exception(f"Attack process stopped due to {type(e).__name__}: ")
         except (KeyboardInterrupt, SystemExit) as e:
             logger.info(f"Attack exiting due to {type(e).__name__}.")
         finally:
@@ -211,6 +207,7 @@ class Attack(Process):
         logger.info(f"Starting attack upon {self.target} using {attack_methods_string}.")
         for _ in range(self.INITIAL_THREADS_COUNT):
             self.start_new_attack_thread()
+        logger.info(f"Attack upon {self.target} started.")
 
         while True:
             time.sleep(1)
@@ -229,11 +226,11 @@ class Attack(Process):
             previous_pps = self.requests_per_second
             self.update_throughput_counters()
 
-            ratio = self.requests_per_second / previous_pps if previous_pps > 0 else float("inf")
-            THRESHOLD = 0.05
-            # logger.info(f"{ratio} {ratio > 1 + THRESHOLD}")
-            if ratio > 1 + THRESHOLD:  # TODO: use ratio
-                self.increase_attack_threads()
+            # ratio = self.requests_per_second / previous_pps if previous_pps > 0 else float("inf")
+            # THRESHOLD = 0.05
+            # # logger.info(f"{ratio} {ratio > 1 + THRESHOLD}")
+            # if ratio > 1 + THRESHOLD:  # TODO: use ratio
+            #     self.increase_attack_threads()
             # elif ratio < 1:
             #     decrease_attack_threads()
 
@@ -253,18 +250,8 @@ class Attack(Process):
             tb_string = Tools.humanbytes(int(self.tb))
 
             per_second_string = f"{bps_string}/s / {pps_string} r/s"
-            if int(self.bytes_per_second) == 0:
-                per_second_string = term.red(per_second_string)
-            else:
-                per_second_string = term.green(per_second_string)
-
             total_string = f"{tb_string} / {tp_string} r"
-            if int(self.total_bytes_counter) == 0:
-                total_string = term.red(total_string)
-
             tslr_string = f"{tslr * 1000:.0f} ms"
-            if tslr > 10:
-                tslr_string = term.red(tslr_string)
 
             logger.info(f"Total sent: {total_string}, "
                         f"per second: {per_second_string}, "
@@ -457,15 +444,21 @@ class Attack(Process):
                 break
             self.stop_attack_thread()
 
-    def get_running_threads_count(self) -> int:
+    def clear_dead_threads(self) -> None:
         # clear any dead threads from the list
+        offset = 0
         for i in range(len(self.attack_threads)):
+            i += offset
             thread = self.attack_threads[i]
             if not thread.is_alive():
                 self.attack_threads_stop_events.pop(i)
                 self.attack_threads.pop(i)
+                offset -= 1
 
-        return len(self.attack_threads_stop_events)
+    def get_running_threads_count(self) -> int:
+        self.clear_dead_threads()
+        # return len(self.attack_threads_stop_events)
+        return len([t for t in self.attack_threads if t.is_alive()])
 
     def cleanup(self):
         """Cleans up after the attack."""
@@ -474,7 +467,9 @@ class Attack(Process):
         if self.attack_threads:
             logger.info("Stopping attack threads...")
             for event in self.attack_threads_stop_events:
-                event.set()
+                event.clear()
+            for attack_thread in self.attack_threads:
+                attack_thread.join()
             # attack threads are daemons, so they will die anyway - we don't wait
             logger.info("Attack threads stopped.")
 
