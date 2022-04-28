@@ -181,6 +181,10 @@ class PalyanytsyaApp(App):
             return
 
         selected_attack = self.supervisor_state.attack_states[self.selected_attack_index]
+        if selected_attack.connectivity_state is None:
+            self.selected_connectivity_page_index = 0
+            return
+
         n_selectable_connectivties = max(1, selected_attack.connectivity_state.total_proxies_count)
 
         n_connectivity_pages = math.ceil(n_selectable_connectivties / self.details_menu.connectivities_per_page)

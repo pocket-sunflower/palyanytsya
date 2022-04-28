@@ -9,10 +9,9 @@ from rich.text import Text
 from textual.reactive import Reactive
 from textual.widget import Widget
 
-from utils.gui import Pagination
 from utils.supervisor import AttackSupervisorState
 from utils.tui.definitions.styles import Styles
-from utils.tui.menus.shared_menu_utils import SharedMenuUtils
+from utils.tui.menus.shared_menu_utils import SharedMenuUtils, Pagination
 
 
 class OverviewMenu(Widget):
