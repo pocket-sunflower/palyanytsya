@@ -1,6 +1,8 @@
 import math
+import queue
 from multiprocessing import Queue
 
+from rich.text import Text
 from textual import events, messages
 from textual.app import App
 from textual.message import Message
@@ -25,7 +27,7 @@ class PalyanytsyaApp(App):
     config: Arguments
     logging_queue: Queue
     supervisor: AttackSupervisor
-    supervisor_state_queue: Queue
+    supervisor_state_queue: queue.Queue
     supervisor_state: AttackSupervisorState = Reactive(None)
 
     selected_menu_index: int = Reactive(0)
@@ -41,7 +43,7 @@ class PalyanytsyaApp(App):
         """Bind keys with the app loads (but before entering application mode)"""
         await self.bind("q", "quit", "Quit")
 
-        self.supervisor_state_queue = Queue()
+        self.supervisor_state_queue = queue.Queue()
         self.supervisor = AttackSupervisor(PalyanytsyaApp.config, self.supervisor_state_queue, PalyanytsyaApp.logging_queue)
         self.supervisor.start()
 
@@ -68,11 +70,16 @@ class PalyanytsyaApp(App):
 
     async def shutdown(self):
         # shutdown supervisor
+        await App.shutdown(self)
         self.supervisor.stop()
         self.supervisor.join()
-        await App.shutdown(self)
 
     async def update_supervisor_state(self):
+        # check if supervisor is healthy
+        if not self.supervisor.is_alive():
+            raise self.supervisor.exception
+
+        # get new state
         new_state = get_last_from_queue(self.supervisor_state_queue)
         if (new_state is not None) and (new_state != self.supervisor_state):
             self.supervisor_state = new_state

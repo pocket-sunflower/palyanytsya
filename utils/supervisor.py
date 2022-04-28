@@ -84,6 +84,8 @@ class AttackSupervisor(Thread):
 
     _state_publisher_thread: Thread = None
 
+    exception: Exception = None
+
     def __init__(self,
                  args: Arguments,
                  supervisor_state_queue: queue.Queue,
@@ -116,6 +118,7 @@ class AttackSupervisor(Thread):
         try:
             self.run_main_loop()
         except Exception as e:
+            self.exception = e
             logger.exception("Exception in Supervisor", exc_info=e)
         except (KeyboardInterrupt, SystemExit):
             pass
@@ -149,7 +152,7 @@ class AttackSupervisor(Thread):
                 self._restart_attacks()
 
             self._update_attack_states()
-
+            
             time.sleep(self._internal_loop_sleep_interval)
 
     def cleanup(self):
