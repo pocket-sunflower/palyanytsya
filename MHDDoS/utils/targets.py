@@ -4,6 +4,7 @@ import re
 import time
 
 import validators
+from dns.exception import DNSException
 from yarl import URL
 
 from MHDDoS.methods.tools import Tools
@@ -72,7 +73,10 @@ class Target:
             address += "/"
             self.url = URL(address)
             # if address is URL, find the associated IP
-            self.ip = NetworkUtils.resolve_ip(self.url.host)
+            try:
+                self.ip = NetworkUtils.resolve_ip(self.url.host)
+            except DNSException:
+                pass
 
         # save protocol
         self.protocol = protocol
