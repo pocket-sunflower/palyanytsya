@@ -1,7 +1,7 @@
-import ctypes
 import json
 import logging
 import os
+import time
 from _socket import gethostbyname
 from contextlib import suppress
 from logging import basicConfig, getLogger, shutdown
@@ -9,10 +9,13 @@ from os import _exit
 from pathlib import Path
 from sys import argv
 from threading import Event
-import time
 
 from PyRoxy import Tools as ProxyTools
-from blessed import Terminal
+from rich.console import Console, RenderableType
+from rich.live import Live
+from rich.style import Style
+from rich.table import Table
+from rich.text import Text
 from yarl import URL
 
 from MHDDoS.methods.layer_4 import Layer4
@@ -21,9 +24,6 @@ from MHDDoS.methods.methods import Methods
 from MHDDoS.methods.tools import Tools
 from MHDDoS.utils.misc import Counter
 from MHDDoS.utils.proxies import ProxyManager
-from utils.blessed_utils import TextUtils
-
-term = Terminal()
 
 basicConfig(format='[%(asctime)s - %(levelname)s] %(message)s',
             datefmt="%H:%M:%S")
@@ -35,6 +35,8 @@ __version__: str = "MHDDOS"
 __dir__: Path = Path(__file__).parent
 logger = logging.getLogger()
 bombardier_path: str = ""
+
+console = Console()
 
 
 def exit(*message):
@@ -56,7 +58,7 @@ def start():
     BYTES_SENT = Counter()
     TOTAL_REQUESTS_SENT = Counter()
     TOTAL_BYTES_SENT = Counter()
-    LAST_REQUEST_TIMESTAMP = Counter(value_type=ctypes.c_double)
+    LAST_REQUEST_TIMESTAMP = Counter()
 
     with open(__dir__ / "config.json") as f:
         config = json.load(f)
@@ -222,27 +224,27 @@ def start():
             # )
             # health_check_thread.start()
 
-            logger.info(f"Attack Started to {host or url.human_repr()} with {method} method for {timer} seconds, threads: {threads}!")
+            logger.info(f"Starting attack upon {host or url.human_repr()} using {method} method for {timer} seconds, threads: {threads}!")
             event.set()
             ts = time.time()
 
-            while time.time() < ts + timer:
-                log_attack_status()
+            console.print("\n")
 
-                # update request counts
-                TOTAL_REQUESTS_SENT += int(REQUESTS_SENT)
-                TOTAL_BYTES_SENT += int(BYTES_SENT)
-                REQUESTS_SENT.set(0)
-                BYTES_SENT.set(0)
+            try:
+                with Live(get_attack_status_text(), refresh_per_second=1) as live:
+                    while time.time() < ts + timer:
+                        # update request counts
+                        TOTAL_REQUESTS_SENT += int(REQUESTS_SENT)
+                        TOTAL_BYTES_SENT += int(BYTES_SENT)
+                        REQUESTS_SENT.set(0)
+                        BYTES_SENT.set(0)
 
-                # craft the status log message
-                pps = Tools.humanformat(int(REQUESTS_SENT))
-                bps = Tools.humanbytes(int(BYTES_SENT))
-                tp = Tools.humanformat(int(TOTAL_REQUESTS_SENT))
-                tb = Tools.humanbytes(int(TOTAL_BYTES_SENT))
-                # logger.info(f"Total bytes sent: {tb}, total requests: {tp}")
+                        # craft the status log message
+                        live.update(get_attack_status_text())
 
-                time.sleep(1)
+                        time.sleep(1)
+            except (KeyboardInterrupt, SystemExit):
+                pass
 
             event.clear()
             exit()
@@ -254,9 +256,8 @@ BYTES_SENT = Counter()
 REQUESTS_SENT = Counter()
 TOTAL_BYTES_SENT = Counter()
 TOTAL_REQUESTS_SENT = Counter()
-LAST_REQUEST_TIMESTAMP = Counter(value_type=ctypes.c_double)
+LAST_REQUEST_TIMESTAMP = Counter()
 
-term = Terminal()
 status_logging_started = False
 is_first_health_check_done = False
 last_target_health_check_timestamp = -1
@@ -266,35 +267,12 @@ last_l7_response = None
 last_l7_proxied_responses = None
 
 
-def log_attack_status():
-    global BYTES_SENT, \
-        REQUESTS_SENT, \
-        TOTAL_BYTES_SENT, \
-        TOTAL_REQUESTS_SENT, \
-        LAST_REQUEST_TIMESTAMP, \
-        status_logging_started
-
-    # craft status message
-    message = "\n"
-    message += craft_performance_log_message()
-
-    # log the message
-    message_height = TextUtils.height(message)
-    message = TextUtils.pad_to_box(message, term.width, message_height)
-    message = TextUtils.truncate_to_box(message, term.width, term.height)
-    height = TextUtils.height(message)
-
-    if not status_logging_started:
-        spacer = "".join(["\n" for _ in range(message_height)])
-        print(spacer, end="", flush=True)
-
-        status_logging_started = True
-
-    with term.location(0, term.height - height - 1):
-        print(message, end="", flush=True)
+class Styles:
+    ok = Style(color="green")
+    bad = Style(color="red")
 
 
-def craft_performance_log_message():
+def get_attack_status_text() -> RenderableType:
     # craft the status log message
     pps = Tools.humanformat(int(REQUESTS_SENT))
     bps = Tools.humanbytes(int(BYTES_SENT))
@@ -303,32 +281,31 @@ def craft_performance_log_message():
     tslr = time.time() - float(LAST_REQUEST_TIMESTAMP)
     tslr_string = f"{tslr * 1000:.0f} ms"
 
-    color_ok = term.green
-    color_bad = term.red
-
     if int(BYTES_SENT) == 0:
-        pps = color_bad(pps)
-        bps = color_bad(bps)
+        pps = Text(pps, style=Styles.bad)
+        bps = Text(bps, style=Styles.bad)
     else:
-        pps = color_ok(pps)
-        bps = color_ok(bps)
+        pps = Text(pps, style=Styles.ok)
+        bps = Text(bps, style=Styles.ok)
     if int(TOTAL_BYTES_SENT) == 0:
-        tp = color_bad(tp)
-        tb = color_bad(tb)
+        tp = Text(tp, style=Styles.bad)
+        tb = Text(tb, style=Styles.bad)
     if tslr > 10:
-        tslr_string = color_bad(tslr_string)
+        tslr_string = Text(tslr_string, style=Styles.bad)
 
-    status_string = f"Status:\n" \
-                    f"    Outgoing data:\n" \
-                    f"       Per second:\n" \
-                    f"          Packets/s: {pps}\n" \
-                    f"          Bytes/s:   {bps}\n" \
-                    f"       Total since the attack started:\n" \
-                    f"          Packets sent: {tp}\n" \
-                    f"          Bytes sent:   {tb}\n" \
-                    f"    Time since last request: {tslr_string}"
+    grid = Table.grid()
 
-    return status_string
+    grid.add_row(Text("Status:", overflow="ellipsis", no_wrap=True))
+    grid.add_row(Text("    Outgoing data:"))
+    grid.add_row(Text("       Per second:"))
+    grid.add_row(Text("          Packets/s: ") + pps)
+    grid.add_row(Text("          Bytes/s:   ") + bps)
+    grid.add_row(Text("    Total since the attack started: "))
+    grid.add_row(Text("          Packets sent: ") + tp)
+    grid.add_row(Text("          Bytes sent:  ") + tb)
+    grid.add_row(Text("    Time since last request: ") + tslr_string)
+
+    return grid
 
 
 if __name__ == '__main__':
