@@ -156,7 +156,12 @@ class Layer7(Thread):
             sock = socket()
 
         sock.setsockopt(IPPROTO_TCP, TCP_NODELAY, 1)
-        sock.connect(self._raw_target)
+        
+        try:
+            sock.connect(self._raw_target)
+        except Exception as e:
+            sock.close()
+            raise e
 
         if self._target.scheme.lower() == "https":
             sock = CTX.wrap_socket(sock,
@@ -198,6 +203,8 @@ class Layer7(Thread):
                         self._requests_sent += 1
                         self._last_request_timestamp.set(time.time())
         except Exception:
+            pass
+        finally:
             s.close()
 
     def STRESS(self) -> None:
@@ -215,6 +222,8 @@ class Layer7(Thread):
                         self._requests_sent += 1
                         self._last_request_timestamp.set(time.time())
         except Exception:
+            pass
+        finally:
             s.close()
 
     def COOKIES(self) -> None:
@@ -234,6 +243,8 @@ class Layer7(Thread):
                         self._requests_sent += 1
                         self._last_request_timestamp.set(time.time())
         except Exception:
+            pass
+        finally:
             s.close()
 
     def APACHE(self) -> None:
@@ -249,6 +260,8 @@ class Layer7(Thread):
                         self._requests_sent += 1
                         self._last_request_timestamp.set(time.time())
         except Exception:
+            pass
+        finally:
             s.close()
 
     def XMLRPC(self) -> None:
@@ -272,6 +285,8 @@ class Layer7(Thread):
                         self._requests_sent += 1
                         self._last_request_timestamp.set(time.time())
         except Exception:
+            pass
+        finally:
             s.close()
 
     def PPS(self) -> None:
@@ -284,6 +299,8 @@ class Layer7(Thread):
                         self._requests_sent += 1
                         self._last_request_timestamp.set(time.time())
         except Exception:
+            pass
+        finally:
             s.close()
 
     def GET(self) -> None:
@@ -297,6 +314,8 @@ class Layer7(Thread):
                         self._requests_sent += 1
                         self._last_request_timestamp.set(time.time())
         except Exception:
+            pass
+        finally:
             s.close()
 
     def BOT(self) -> None:
@@ -333,6 +352,8 @@ class Layer7(Thread):
                         self._requests_sent += 1
                         self._last_request_timestamp.set(time.time())
         except Exception:
+            pass
+        finally:
             s.close()
 
     def EVEN(self) -> None:
@@ -345,6 +366,8 @@ class Layer7(Thread):
                     self._requests_sent += 1
                     self._last_request_timestamp.set(time.time())
         except Exception:
+            pass
+        finally:
             s.close()
 
     def OVH(self) -> None:
@@ -358,6 +381,8 @@ class Layer7(Thread):
                         self._requests_sent += 1
                         self._last_request_timestamp.set(time.time())
         except Exception:
+            pass
+        finally:
             s.close()
 
     def CFB(self):
@@ -381,6 +406,8 @@ class Layer7(Thread):
                         self._requests_sent += 1
                         self._last_request_timestamp.set(time.time())
         except Exception:
+            pass
+        finally:
             s.close()
 
     def CFBUAM(self):
@@ -395,6 +422,8 @@ class Layer7(Thread):
                         self._requests_sent += 1
                         self._last_request_timestamp.set(time.time())
         except Exception:
+            pass
+        finally:
             s.close()
 
     def AVB(self):
@@ -409,6 +438,8 @@ class Layer7(Thread):
                         self._requests_sent += 1
                         self._last_request_timestamp.set(time.time())
         except Exception:
+            pass
+        finally:
             s.close()
 
     def DGB(self):
@@ -449,6 +480,8 @@ class Layer7(Thread):
                         self._requests_sent += 1
                         self._last_request_timestamp.set(time.time())
         except Exception:
+            pass
+        finally:
             s.close()
 
     def DOWNLOADER(self):
@@ -475,6 +508,8 @@ class Layer7(Thread):
                 self._bytes_sent += 1
 
         except Exception:
+            pass
+        finally:
             s.close()
 
     def BYPASS(self):
@@ -498,6 +533,8 @@ class Layer7(Thread):
                         self._requests_sent += 1
                         self._last_request_timestamp.set(time.time())
         except Exception:
+            pass
+        finally:
             s.close()
 
     def GSB(self):
@@ -528,6 +565,8 @@ class Layer7(Thread):
                         self._requests_sent += 1
                         self._last_request_timestamp.set(time.time())
         except Exception:
+            pass
+        finally:
             s.close()
 
     def NULL(self) -> None:
@@ -546,6 +585,8 @@ class Layer7(Thread):
                         self._requests_sent += 1
                         self._last_request_timestamp.set(time.time())
         except Exception:
+            pass
+        finally:
             s.close()
 
     def SLOW(self):
@@ -565,6 +606,8 @@ class Layer7(Thread):
                             self._last_request_timestamp.set(time.time())
                     break
         except Exception:
+            pass
+        finally:
             s.close()
 
     def select(self, name: str) -> None:
